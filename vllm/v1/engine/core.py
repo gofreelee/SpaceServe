@@ -7,6 +7,7 @@ import threading
 import time
 from multiprocessing.connection import Connection
 from typing import List, Tuple, Type
+import torch
 
 import psutil
 import zmq
@@ -20,6 +21,7 @@ from vllm.transformers_utils.config import (
 from vllm.utils import get_exception_traceback, zmq_socket_ctx
 from vllm.v1.core.kv_cache_utils import get_kv_cache_config
 from vllm.v1.core.scheduler import Scheduler
+from vllm.v1.core.encoder_scheduler import EncoderScheduler
 from vllm.v1.engine import (EngineCoreOutputs, EngineCoreProfile,
                             EngineCoreRequest, EngineCoreRequestType,
                             EngineCoreRequestUnion, EngineCoreResetPrefixCache)
@@ -48,8 +50,10 @@ class EngineCore:
                     VLLM_VERSION, vllm_config)
 
         # Setup Model.
+        logger.info(vllm_config)
+        logger.info(executor_class)
         self.model_executor = executor_class(vllm_config)
-
+        logger.info(type(self.model_executor))
         # Setup KV Caches and update CacheConfig after profiling.
         num_gpu_blocks, num_cpu_blocks = self._initialize_kv_caches(
             vllm_config)
@@ -106,6 +110,7 @@ class EngineCore:
                 request.mm_inputs, request.mm_hashes)
 
         req = Request.from_engine_core_request(request)
+        print(f"req.mm_inputs is {req.mm_inputs}")
 
         self.scheduler.add_request(req)
 
@@ -125,7 +130,9 @@ class EngineCore:
             return EngineCoreOutputs(
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
 
+        # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
         scheduler_output = self.scheduler.schedule()
+        logger.info(f"scheduler_output is {scheduler_output}")
         output = self.model_executor.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, output)
@@ -152,6 +159,7 @@ class EngineCoreProc(EngineCore):
         vllm_config: VllmConfig,
         executor_class: Type[Executor],
         log_stats: bool = False,
+        encoder_result_queue = None,
     ):
         super().__init__(vllm_config, executor_class)
 
@@ -164,6 +172,7 @@ class EngineCoreProc(EngineCore):
         # Threads handle Socket <-> Queues and core_busy_loop uses Queue.
         self.input_queue: queue.Queue[EngineCoreRequestUnion] = queue.Queue()
         self.output_queue: queue.Queue[EngineCoreOutputs] = queue.Queue()
+        self.encoder_result_queue = encoder_result_queue
         threading.Thread(target=self.process_input_socket,
                          args=(input_path, ),
                          daemon=True).start()
@@ -176,6 +185,8 @@ class EngineCoreProc(EngineCore):
 
     @staticmethod
     def run_engine_core(*args, **kwargs):
+        # import traceback;traceback.print_stack()    
+        # exit(0)
         """Launch EngineCore busy loop in background process."""
 
         # Signal handler used for graceful termination.
@@ -301,3 +312,270 @@ class EngineCoreProc(EngineCore):
                 outputs = self.output_queue.get()
                 encoder.encode_into(outputs, buffer)
                 socket.send_multipart((buffer, ), copy=False)
+
+
+
+
+
+
+class EncoderCore:
+    """Inner loop of vLLM's encoder Engine."""
+
+    def __init__(
+        self,
+        vllm_config: VllmConfig,
+        executor_class: Type[Executor],
+    ):
+        assert vllm_config.model_config.runner_type != "pooling"
+
+        logger.info("Initializing a V1 LLM encoder engine (v%s) with config: %s",
+                    VLLM_VERSION, vllm_config)
+
+        # Setup Model.
+        #self.model_executor = executor_class(vllm_config)
+
+        #Setup KV Caches and update CacheConfig after profiling.
+        # num_gpu_blocks, num_cpu_blocks = self._initialize_kv_caches(
+        #     vllm_config)
+        # vllm_config.cache_config.num_gpu_blocks = num_gpu_blocks
+        # vllm_config.cache_config.num_cpu_blocks = num_cpu_blocks
+
+        #Setup scheduler.
+        self.scheduler = EncoderScheduler(
+            scheduler_config=vllm_config.scheduler_config,
+            model_config=vllm_config.model_config,
+            cache_config=vllm_config.cache_config,
+            lora_config=vllm_config.lora_config,
+        )
+
+        self.mm_input_mapper_server = MMInputMapperServer(
+            vllm_config.model_config)
+
+    def add_request(self, request: EngineCoreRequest):
+        """Add request to the scheduler."""
+
+        if request.mm_hashes is not None:
+            # Here, if hash exists for an image, then it will be fetched
+            # from the cache, else it will be added to the cache.
+            # Note that the cache here is mirrored with the client side of the
+            # MM mapper, so anything that has a hash must have a HIT cache
+            # entry here as well.
+            assert request.mm_inputs is not None
+            request.mm_inputs = self.mm_input_mapper_server.process_inputs(
+                request.mm_inputs, request.mm_hashes)
+
+        req = Request.from_engine_core_request(request)
+        print(f"req.mm_inputs is {req.mm_inputs}")
+
+        self.scheduler.add_request(req)
+
+    def abort_requests(self, request_ids: List[str]):
+        """Abort requests from the scheduler."""
+
+        # TODO: The scheduler doesn't really need to know the
+        # specific finish reason, TBD whether we propagate that
+        # (i.e. client-aborted vs stop criteria met).
+        self.scheduler.finish_requests(request_ids,
+                                       RequestStatus.FINISHED_ABORTED)
+
+    def step(self) -> EngineCoreOutputs:
+        """Schedule, execute, and make output."""
+        engine_core_outputs = EngineCoreOutputs(
+            outputs=[], scheduler_stats=self.scheduler.make_stats())
+        if not self.scheduler.has_unfinished_requests():
+            return EngineCoreOutputs(
+                outputs=[], scheduler_stats=self.scheduler.make_stats())
+
+        # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
+        scheduler_output = self.scheduler.schedule()
+        #output = self.model_executor.execute_model(scheduler_output)
+        # engine_core_outputs = self.scheduler.update_from_output(
+        #     scheduler_output, output)
+        return engine_core_outputs
+
+    def shutdown(self):
+        logger.info("shutdown")
+        #self.model_executor.shutdown()
+
+    # def profile(self, is_start: bool = True):
+    #     self.model_executor.profile(is_start)
+
+    # def reset_prefix_cache(self):
+    #     self.scheduler.reset_prefix_cache()
+
+
+class EncoderCoreProc(EncoderCore):
+    """ZMQ-wrapper for running EncoderCore in background process."""
+
+    def __init__(
+        self,
+        input_path: str,
+        output_path: str,
+        ready_pipe: Connection,
+        vllm_config: VllmConfig,
+        executor_class: Type[Executor],
+        log_stats: bool = False,
+        encoder_result_queue = None
+    ):
+        super().__init__(vllm_config, executor_class)
+
+        self.log_stats = log_stats
+
+        # Background Threads and Queues for IO. These enable us to
+        # overlap ZMQ socket IO with GPU since they release the GIL,
+        # and to overlap some serialization/deserialization with the
+        # model forward pass.
+        # Threads handle Socket <-> Queues and core_busy_loop uses Queue.
+        self.input_queue: queue.Queue[EngineCoreRequestUnion] = queue.Queue()
+        self.output_queue: queue.Queue[EngineCoreOutputs] = queue.Queue()
+        self.encoder_result_queue = encoder_result_queue
+        print(f"self.encoder_result_queue is {self.encoder_result_queue}")
+        threading.Thread(target=self.process_input_socket,
+                         args=(input_path, ),
+                         daemon=True).start()
+        threading.Thread(target=self.process_output_socket,
+                         args=(output_path, ),
+                         daemon=True).start()
+
+        # Send Readiness signal to EngineClient.
+        ready_pipe.send({"status": "READY"})
+
+    @staticmethod
+    def run_encoder_core(*args, **kwargs):
+        """Launch encoder busy loop in background process."""
+
+        # Signal handler used for graceful termination.
+        # SystemExit exception is only raised once to allow this and worker
+        # processes to terminate without error
+        shutdown_requested = False
+
+        # Ensure we can serialize transformer config after spawning
+        maybe_register_config_serialize_by_value()
+
+        def signal_handler(signum, frame):
+            nonlocal shutdown_requested
+            if not shutdown_requested:
+                shutdown_requested = True
+                raise SystemExit()
+
+        # Either SIGTERM or SIGINT will terminate the engine_core
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
+        parent_process = psutil.Process().parent()
+        encoder_core = None
+        try:
+            encoder_core = EncoderCoreProc(*args, **kwargs)
+            encoder_core.run_busy_loop()
+
+        except SystemExit:
+            logger.debug("EngineCore interrupted.")
+
+        except Exception:
+            traceback = get_exception_traceback()
+            logger.error("EngineCore hit an exception: %s", traceback)
+            parent_process.send_signal(signal.SIGUSR1)
+
+        finally:
+            if encoder_core is not None:
+                encoder_core.shutdown()
+
+    def run_busy_loop(self):
+        """Core busy loop of the EngineCore."""
+
+        # Loop until process is sent a SIGINT or SIGTERM
+        logger.info("EncoderCoreProc run_busy_loop")
+        while True:
+            # 1) Poll the input queue until there is work to do.
+            # if not self.scheduler.has_unfinished_requests():
+            #     while True:
+            #         logger.info(f"in while true, self.scheduler.has_unfinished_requests() is {self.scheduler.has_unfinished_requests()}")
+            #         try:
+            #             req = self.input_queue.get(timeout=POLLING_TIMEOUT_S)
+            #             self._handle_client_request(req)
+            #             break
+            #         except queue.Empty:
+            #             logger.debug("EncoderCore busy loop waiting.")
+            #             # Break out the loop so we can log_stats in step().
+            #             if self.log_stats:
+            #                 break
+            #         except BaseException:
+            #             raise
+            # logger.info(f"self.input_queue.empty() is {self.input_queue.empty()}")
+            # logger.info(f"self.scheduler.has_unfinished_requests() is {self.scheduler.has_unfinished_requests()}")
+            # # # 2) Handle any new client requests (Abort or Add).
+            # while not self.input_queue.empty():
+            #     logger.info("there is new req in encoder process")
+            #     req = self.input_queue.get_nowait()
+            #     self._handle_client_request(req)
+            pass
+
+            # # 3) Step the engine core.
+            #outputs = self.step()
+
+            # # 5) Put EngineCoreOutputs into the output queue.
+            # self.output_queue.put_nowait(outputs)
+
+    def _handle_client_request(self, request: EngineCoreRequestUnion) -> None:
+
+        """Handle EngineCoreRequest or EngineCoreABORT from Client."""
+
+        if isinstance(request, EngineCoreRequest):
+            self.add_request(request)
+        elif isinstance(request, EngineCoreProfile):
+            self.model_executor.profile(request.is_start)
+        elif isinstance(request, EngineCoreResetPrefixCache):
+            self.reset_prefix_cache()
+        else: # TODO: make an EngineCoreAbort wrapper
+            assert isinstance(request, list)
+            self.abort_requests(request)
+
+    def process_input_socket(self, input_path: str):
+        
+        """Input socket IO thread."""
+        logger.info("process_input_socket")
+        #exit(0)
+        # Msgpack serialization decoding.
+        decoder_add_req = PickleEncoder()
+        decoder_abort_req = PickleEncoder()
+
+        with zmq_socket_ctx(input_path, zmq.constants.PULL) as socket:
+            while True:
+                # (RequestType, RequestData)
+                type_frame, data_frame = socket.recv_multipart(copy=False)
+                request_type = type_frame.buffer
+                request_data = data_frame.buffer
+
+                # Deserialize the request data.
+                if request_type == EngineCoreRequestType.ADD.value:
+                    request = decoder_add_req.decode(request_data)
+                elif request_type == EngineCoreRequestType.ABORT.value:
+                    request = decoder_abort_req.decode(request_data)
+                elif request_type in (
+                        EngineCoreRequestType.PROFILE.value,
+                        EngineCoreRequestType.RESET_PREFIX_CACHE.value):
+                    request = pickle.loads(request_data)
+                else:
+                    raise ValueError(f"Unknown RequestType: {request_type}")
+
+                # Push to input queue for core busy loop.
+                self.input_queue.put_nowait(request)
+
+    def process_output_socket(self, output_path: str):
+        """Output socket IO thread."""
+
+        # Msgpack serialization encoding.
+        encoder = msgpack.Encoder()
+        # Reuse send buffer.
+        buffer = bytearray()
+
+        with zmq_socket_ctx(output_path, zmq.constants.PUSH) as socket:
+            while True:
+                outputs = self.output_queue.get()
+                encoder.encode_into(outputs, buffer)
+                socket.send_multipart((buffer, ), copy=False)
+
+
+
+
+

@@ -47,6 +47,7 @@ class GPUModelRunner:
         vllm_config: VllmConfig,
         device: torch.device,
     ):
+        print(f"vllm_config: {vllm_config}")
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
         self.cache_config = vllm_config.cache_config
@@ -206,6 +207,7 @@ class GPUModelRunner:
         self.seq_lens_np = self.seq_lens_cpu.numpy()
 
     def _update_states(self, scheduler_output: "SchedulerOutput") -> bool:
+
         """Update the cached states and the persistent batch with the scheduler
         output.
 
@@ -644,13 +646,16 @@ class GPUModelRunner:
     def _execute_encoder(self, scheduler_output: "SchedulerOutput"):
         scheduled_encoder_inputs = scheduler_output.scheduled_encoder_inputs
         if not scheduled_encoder_inputs:
+            #print("No encoder inputs to process in gpu_model_runner:648")
             return
 
         # Batch the multi-modal inputs.
         mm_inputs: List[MultiModalKwargs] = []
         req_input_ids: List[Tuple[str, int]] = []
         for req_id, encoder_input_ids in scheduled_encoder_inputs.items():
+            print(f"req_id is {req_id}, encoder_input_ids are {encoder_input_ids}")
             req_state = self.requests[req_id]
+            print(f"req_state is  {req_state}")
             for input_id in encoder_input_ids:
                 mm_inputs.append(req_state.mm_inputs[input_id])
                 req_input_ids.append((req_id, input_id))
@@ -662,6 +667,7 @@ class GPUModelRunner:
         # in the same batch while still being able to benefit from batching
         # multimodal inputs. The proper solution should be reordering the
         # encoder outputs.
+        print(f"mm_inputs are {mm_inputs}")
         grouped_mm_inputs_list = group_mm_inputs_by_modality(mm_inputs)
 
         encoder_outputs = []
@@ -669,7 +675,7 @@ class GPUModelRunner:
             batched_mm_inputs = MultiModalKwargs.batch(grouped_mm_inputs)
             batched_mm_inputs = MultiModalKwargs.as_kwargs(batched_mm_inputs,
                                                            device=self.device)
-
+            print(f"batched_mm_inputs are {batched_mm_inputs}") 
             # Run the encoder.
             # `curr_group_outputs` is either of the following:
             # 1. A tensor of shape (num_items, feature_size, hidden_size)
@@ -679,6 +685,7 @@ class GPUModelRunner:
             # depending on the input multimodal items.
             curr_group_outputs = self.model.get_multimodal_embeddings(
                 **batched_mm_inputs)
+            print(f"curr_group_outputs are {curr_group_outputs}")
 
             for output in curr_group_outputs:
                 encoder_outputs.append(output)
@@ -687,6 +694,8 @@ class GPUModelRunner:
         for (req_id, input_id), output in zip(req_input_ids, encoder_outputs):
             if req_id not in self.encoder_cache:
                 self.encoder_cache[req_id] = {}
+            print(f"encoder cache is {self.encoder_cache[req_id]}")
+            print(f"type of encoder output is {type(output)}")
             self.encoder_cache[req_id][input_id] = output
 
     def _gather_encoder_outputs(
@@ -737,14 +746,15 @@ class GPUModelRunner:
         self,
         scheduler_output: "SchedulerOutput",
     ) -> ModelRunnerOutput:
+        #import traceback;traceback.print_stack()
         batch_changed = self._update_states(scheduler_output)
-
         if self.is_multimodal_model:
             # Run the multimodal encoder if any.
             self._execute_encoder(scheduler_output)
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
         else:
             encoder_outputs = []
+        #print(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")
 
         # Prepare the decoder inputs.
         attn_metadata, logits_indices = self._prepare_inputs(scheduler_output)

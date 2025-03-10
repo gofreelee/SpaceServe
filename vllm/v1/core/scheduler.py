@@ -85,6 +85,7 @@ class Scheduler:
         # NOTE(woosuk): Here, "encoder" includes the vision encoder (and
         # projector if needed). Currently, we assume that the encoder also
         # has the Transformer architecture (e.g., ViT).
+        # 
         self.max_num_encoder_input_tokens = encoder_compute_budget
         # NOTE: For the models without encoder (e.g., text-only models),
         # the encoder cache will not be initialized because cache size is 0
@@ -101,7 +102,7 @@ class Scheduler:
         # so that each request's num_computed_tokens can catch up its
         # num_tokens. This is general enough to cover chunked prefills,
         # prefix caching, and the "jump decoding" optimization in the future.
-
+        logger.debug("Scheduling requests...")
         scheduled_new_reqs: List[Request] = []
         scheduled_resumed_reqs: List[Request] = []
         scheduled_running_reqs: List[Request] = []
@@ -182,6 +183,7 @@ class Scheduler:
 
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
+            #import traceback;traceback.print_stack()
             while self.waiting and token_budget > 0:
                 if len(self.running) == self.max_num_running_reqs:
                     break
@@ -359,11 +361,11 @@ class Scheduler:
         """
         if not request.has_encoder_inputs():
             return [], num_new_tokens, encoder_budget
-
         encoder_inputs_to_schedule: List[int] = []
         mm_positions = request.mm_positions
         assert mm_positions is not None
         assert len(mm_positions) > 0
+        print(f"mm_positions is  {mm_positions}")
         for i, pos_info in enumerate(mm_positions):
             start_pos = pos_info["offset"]
             num_encoder_tokens = pos_info["length"]

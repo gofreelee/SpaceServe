@@ -2207,6 +2207,7 @@ def run_method(obj: Any, method: Union[str, bytes, Callable], args: Tuple[Any],
     cloudpickle.
     If the method is a callable, it will be called directly.
     """
+    #logger.info(method)
     if isinstance(method, bytes):
         func = partial(cloudpickle.loads(method), obj)
     elif isinstance(method, str):
@@ -2217,6 +2218,7 @@ def run_method(obj: Any, method: Union[str, bytes, Callable], args: Tuple[Any],
                                       " implemented.") from None
     else:
         func = partial(method, obj)  # type: ignore
+    #logger.info(func)
     return func(*args, **kwargs)
 
 

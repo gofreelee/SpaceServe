@@ -90,6 +90,8 @@ def compute_encoder_budget(
         encoder_compute_budget,
         encoder_cache_size,
     ) = _compute_encoder_budget_multimodal(model_config, scheduler_config)
+    print(f"encoder_compute_budget: {encoder_compute_budget}")
+    print(f"encoder_cache_size: {encoder_cache_size}")
 
     return encoder_compute_budget, encoder_cache_size
 

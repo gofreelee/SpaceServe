@@ -6,7 +6,7 @@ import signal
 import weakref
 from abc import ABC, abstractmethod
 from typing import List, Optional, Type
-
+import torch.multiprocessing as mp
 import msgspec
 import zmq
 import zmq.asyncio
@@ -16,9 +16,11 @@ from vllm.logger import init_logger
 from vllm.utils import (get_open_zmq_ipc_path, kill_process_tree,
                         make_zmq_socket)
 from vllm.v1.engine import (EngineCoreOutputs, EngineCoreProfile,
+                            
                             EngineCoreRequest, EngineCoreRequestType,
                             EngineCoreRequestUnion, EngineCoreResetPrefixCache)
 from vllm.v1.engine.core import EngineCore, EngineCoreProc
+from vllm.v1.engine.core import EncoderCore, EncoderCoreProc
 from vllm.v1.executor.abstract import Executor
 from vllm.v1.serial_utils import PickleEncoder
 from vllm.v1.utils import BackgroundProcHandle
@@ -174,6 +176,104 @@ class MPClient(EngineCoreClient):
         # else the gc cannot collect the object.
         self._finalizer = weakref.finalize(self, lambda x: x.destroy(linger=0),
                                            self.ctx)
+        encoder_result_queue = mp.Queue(maxsize=10)
+        # Paths and sockets for IPC.
+        output_path = get_open_zmq_ipc_path()
+        input_path = get_open_zmq_ipc_path()
+        self.output_socket = make_zmq_socket(self.ctx, output_path,
+                                             zmq.constants.PULL)
+        self.input_socket = make_zmq_socket(self.ctx, input_path,
+                                            zmq.constants.PUSH)
+
+        # Start EngineCore in background process.
+        
+        self.proc_handle = BackgroundProcHandle(
+            input_path=input_path,
+            output_path=output_path,
+            process_name="EngineCore",
+            target_fn=EngineCoreProc.run_engine_core,
+            process_kwargs={
+                "vllm_config": vllm_config,
+                "executor_class": executor_class,
+                "log_stats": log_stats,
+                "encoder_result_queue": encoder_result_queue
+            })
+
+        encoder_output_path = get_open_zmq_ipc_path()
+        encoder_input_path = get_open_zmq_ipc_path()
+        self.encoder_output_socket = make_zmq_socket(self.ctx, encoder_output_path,
+                                             zmq.constants.PULL)
+        self.encoder_input_socket = make_zmq_socket(self.ctx, encoder_input_path,
+                                            zmq.constants.PUSH)
+        self.encoder_proc_handle = BackgroundProcHandle(
+            input_path=encoder_input_path, 
+            output_path = encoder_output_path,
+            process_name = "EncoderProcess",
+            target_fn=EncoderCoreProc.run_encoder_core,
+            process_kwargs={
+                "vllm_config": vllm_config,
+                "executor_class": executor_class,
+                "log_stats": log_stats,
+                "encoder_result_queue": encoder_result_queue
+            }
+        )
+
+    def shutdown(self):
+        """Clean up background resources."""
+        if hasattr(self, "proc_handle"):
+            self.proc_handle.shutdown()
+
+        self._finalizer()
+
+
+
+class EncoderClient(EngineCoreClient):
+    """
+    MPClient: base client for multi-proc EngineCore.
+        EngineCore runs in a background process busy loop, getting
+        new EngineCoreRequests and returning EngineCoreOutputs
+
+        * pushes EngineCoreRequests via input_socket
+        * pulls EngineCoreOutputs via output_socket
+    
+        * AsyncMPClient subclass for AsyncLLM usage
+        * SyncMPClient subclass for LLM usage
+    """
+
+    def __init__(
+        self,
+        asyncio_mode: bool,
+        vllm_config: VllmConfig,
+        executor_class: Type[Executor],
+        log_stats: bool,
+    ):
+        # The child processes will send SIGUSR1 when unrecoverable
+        # errors happen. We kill the process tree here so that the
+        # stack trace is very evident.
+        # TODO(rob): rather than killing the main process, we should
+        # figure out how to raise an AsyncEngineDeadError and
+        # handle at the API server level so we can return a better
+        # error code to the clients calling VLLM.
+        def sigusr1_handler(signum, frame):
+            logger.fatal("Got fatal signal from worker processes, shutting "
+                         "down. See stack trace above for root cause issue.")
+            kill_process_tree(os.getpid())
+
+        signal.signal(signal.SIGUSR1, sigusr1_handler)
+
+        # Serialization setup.
+        self.encoder = PickleEncoder()
+        self.decoder = msgspec.msgpack.Decoder(EngineCoreOutputs)
+
+        # ZMQ setup.
+        self.ctx = (
+            zmq.asyncio.Context()  # type: ignore[attr-defined]
+            if asyncio_mode else zmq.Context())  # type: ignore[attr-defined]
+
+        # Note(rob): shutdown function cannot be a bound method,
+        # else the gc cannot collect the object.
+        self._finalizer = weakref.finalize(self, lambda x: x.destroy(linger=0),
+                                           self.ctx)
 
         # Paths and sockets for IPC.
         output_path = get_open_zmq_ipc_path()
@@ -187,8 +287,8 @@ class MPClient(EngineCoreClient):
         self.proc_handle = BackgroundProcHandle(
             input_path=input_path,
             output_path=output_path,
-            process_name="EngineCore",
-            target_fn=EngineCoreProc.run_engine_core,
+            process_name="EncoderProcess",
+            target_fn=EncoderCoreProc.run_engine_core,
             process_kwargs={
                 "vllm_config": vllm_config,
                 "executor_class": executor_class,
@@ -201,7 +301,6 @@ class MPClient(EngineCoreClient):
             self.proc_handle.shutdown()
 
         self._finalizer()
-
 
 class SyncMPClient(MPClient):
     """Synchronous client for multi-proc EngineCore."""
@@ -288,7 +387,20 @@ class AsyncMPClient(MPClient):
         # tokenized.
         request.prompt = None
         await self._send_input(EngineCoreRequestType.ADD, request)
+        await self._send_input_toencoder(EngineCoreRequestType.ADD, request)
+    
+    async def _send_input_toencoder(self, request_type: EngineCoreRequestType,
+                          request: EngineCoreRequestUnion) -> None:
 
+        msg = (request_type.value, self.encoder.encode(request))
+        await self.encoder_input_socket.send_multipart(msg, copy=False)
+
+    async def add_request_toencoder_async(self, request: EngineCoreRequest) -> None:
+        # NOTE: text prompt is not needed in the core engine as it has been
+        # tokenized.
+        request.prompt = None
+        await self._send_input_toencoder(EngineCoreRequestType.ADD, request)
+ 
     async def abort_requests_async(self, request_ids: List[str]) -> None:
         if len(request_ids) > 0:
             await self._send_input(EngineCoreRequestType.ABORT, request_ids)

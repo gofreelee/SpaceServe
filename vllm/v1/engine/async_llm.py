@@ -87,6 +87,8 @@ class AsyncLLM(EngineClient):
             executor_class=executor_class,
         )
 
+        #add encoder engine
+
         self.output_handler: Optional[asyncio.Task] = None
 
     @classmethod

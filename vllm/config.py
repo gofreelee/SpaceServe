@@ -313,6 +313,7 @@ class ModelConfig:
 
         self.hf_text_config = get_hf_text_config(self.hf_config)
         self.encoder_config = self._get_encoder_config()
+
         self.hf_image_processor_config = get_hf_image_processor_config(
             self.model, revision)
         self.dtype = _get_and_verify_dtype(self.hf_text_config, dtype)
