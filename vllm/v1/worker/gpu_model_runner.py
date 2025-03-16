@@ -113,6 +113,7 @@ class GPUModelRunner:
 
         # Request states.
         self.requests: Dict[str, CachedRequestState] = {}
+        #self.encoder_requests: Dict[str, CachedRequestState] = {}
         # Persistent batch.
         self.input_batch = InputBatch(
             max_num_reqs=self.max_num_reqs,
@@ -362,6 +363,9 @@ class GPUModelRunner:
             self.input_batch.condense(removed_req_indices)
         return len(unscheduled_req_ids) > 0 or len(req_ids_to_add) > 0
 
+
+
+        
     def _prepare_inputs(self, scheduler_output: "SchedulerOutput"):
         total_num_scheduled_tokens = scheduler_output.total_num_scheduled_tokens
         assert total_num_scheduled_tokens > 0
@@ -643,8 +647,58 @@ class GPUModelRunner:
             req_id_output_token_ids, skip_copy=not batch_changed)
         return sampling_metadata
 
+    def update_for_encoder(self, scheduler_output):
+        for new_req_data in scheduler_output.scheduled_new_reqs:
+            req_id = new_req_data.req_id
+            sampling_params = new_req_data.sampling_params
+            if sampling_params.sampling_type == SamplingType.RANDOM_SEED:
+                generator = torch.Generator(device=self.device)
+                generator.manual_seed(sampling_params.seed)
+            else:
+                generator = None
+
+            self.requests[req_id] = CachedRequestState(
+                req_id=req_id,
+                prompt_token_ids=new_req_data.prompt_token_ids,
+                prompt=new_req_data.prompt,
+                mm_inputs=new_req_data.mm_inputs,
+                mm_positions=new_req_data.mm_positions,
+                sampling_params=sampling_params,
+                generator=generator,
+                block_ids=new_req_data.block_ids,
+                num_computed_tokens=new_req_data.num_computed_tokens,
+                output_token_ids=[],
+            )
+            logger.info(f"request req_id is {req_id}")
+        logger.info(f"{scheduler_output.scheduled_new_reqs}")
+    
     def _execute_encoder(self, scheduler_output: "SchedulerOutput"):
+        # for new_req_data in scheduler_output.scheduled_new_reqs:
+        #     req_id = new_req_data.req_id
+        #     sampling_params = new_req_data.sampling_params
+        #     if sampling_params.sampling_type == SamplingType.RANDOM_SEED:
+        #         generator = torch.Generator(device=self.device)
+        #         generator.manual_seed(sampling_params.seed)
+        #     else:
+        #         generator = None
+
+        #     self.requests[req_id] = CachedRequestState(
+        #         req_id=req_id,
+        #         prompt_token_ids=new_req_data.prompt_token_ids,
+        #         prompt=new_req_data.prompt,
+        #         mm_inputs=new_req_data.mm_inputs,
+        #         mm_positions=new_req_data.mm_positions,
+        #         sampling_params=sampling_params,
+        #         generator=generator,
+        #         block_ids=new_req_data.block_ids,
+        #         num_computed_tokens=new_req_data.num_computed_tokens,
+        #         output_token_ids=[],
+        #     )
+        #     logger.info(f"request req_id is {req_id}")
+        # logger.info(f"{scheduler_output.scheduled_new_reqs}")
+
         scheduled_encoder_inputs = scheduler_output.scheduled_encoder_inputs
+        logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
         if not scheduled_encoder_inputs:
             #print("No encoder inputs to process in gpu_model_runner:648")
             return
@@ -667,7 +721,7 @@ class GPUModelRunner:
         # in the same batch while still being able to benefit from batching
         # multimodal inputs. The proper solution should be reordering the
         # encoder outputs.
-        print(f"mm_inputs are {mm_inputs}")
+        logger.info(f"mm_inputs are {mm_inputs}")
         grouped_mm_inputs_list = group_mm_inputs_by_modality(mm_inputs)
 
         encoder_outputs = []
@@ -675,7 +729,7 @@ class GPUModelRunner:
             batched_mm_inputs = MultiModalKwargs.batch(grouped_mm_inputs)
             batched_mm_inputs = MultiModalKwargs.as_kwargs(batched_mm_inputs,
                                                            device=self.device)
-            print(f"batched_mm_inputs are {batched_mm_inputs}") 
+            logger.info(f"batched_mm_inputs are {batched_mm_inputs}") 
             # Run the encoder.
             # `curr_group_outputs` is either of the following:
             # 1. A tensor of shape (num_items, feature_size, hidden_size)
@@ -683,6 +737,8 @@ class GPUModelRunner:
             # 2. A list or tuple (length: num_items) of tensors, each of shape
             # (feature_size, hidden_size) in case the feature size is dynamic
             # depending on the input multimodal items.
+            logger.info(f"self model is {self.model}")
+            logger.info(f"self model multimodal embeddings are  {self.model.get_multimodal_embeddings}")
             curr_group_outputs = self.model.get_multimodal_embeddings(
                 **batched_mm_inputs)
             print(f"curr_group_outputs are {curr_group_outputs}")
@@ -746,15 +802,16 @@ class GPUModelRunner:
         self,
         scheduler_output: "SchedulerOutput",
     ) -> ModelRunnerOutput:
-        #import traceback;traceback.print_stack()
+        import traceback;traceback.print_stack()
         batch_changed = self._update_states(scheduler_output)
         if self.is_multimodal_model:
             # Run the multimodal encoder if any.
+            logger.info(f"scheduler_output: {scheduler_output}")
             self._execute_encoder(scheduler_output)
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
         else:
             encoder_outputs = []
-        #print(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")
+        logger.info(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")
 
         # Prepare the decoder inputs.
         attn_metadata, logits_indices = self._prepare_inputs(scheduler_output)
@@ -874,11 +931,16 @@ class GPUModelRunner:
         return model_runner_output
 
     def load_model(self) -> None:
+        #import traceback;traceback.print_stack()
+        logger.info(self.model_config.only_vision_encoder)
         logger.info("Starting to load model %s...", self.model_config.model)
+        #self.model_config.only_vision_encoder = True
+        #self.vllm_config.model_config.only_vision_encoder = True
         with DeviceMemoryProfiler() as m:  # noqa: SIM117
             self.model = get_model(vllm_config=self.vllm_config)
 
         self.model_memory_usage = m.consumed_memory
+        logger.info(self.model)
         logger.info("Loading model weights took %.4f GB",
                     self.model_memory_usage / float(2**30))
 

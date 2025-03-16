@@ -58,6 +58,8 @@ class WeightsMapper:
     def apply(
         self, weights: Iterable[Tuple[str, torch.Tensor]]
     ) -> Iterable[Tuple[str, torch.Tensor]]:
+        # for name, data in weights:
+        #     logger.info(name)
         return ((out_name, data) for name, data in weights
                 if (out_name := self._map_name(name)) is not None)
 
@@ -183,7 +185,8 @@ class AutoWeightsLoader:
 
         child_modules = dict(module.named_children())
         child_params = dict(module.named_parameters(recurse=False))
-
+        # logger.info(child_modules)
+        # logger.info(child_params)
         for child_prefix, child_weights in self._groupby_prefix(weights):
             prefix = self._get_qualname(base_prefix, child_prefix)
 
@@ -229,10 +232,17 @@ class AutoWeightsLoader:
         *,
         mapper: Optional[WeightsMapper] = None,
     ) -> Set[str]:
+        # logger.info(f"before mapper , weight are {weights}")
+        # for i in weights:
+        #     logger.info(i[0])
         if mapper is not None:
             weights = mapper.apply(weights)
-
+            # logger.info(f"after mapper , weight are {weights}")
+            # for i in weights:
+            #     logger.info(i[0])
+        logger.info(self.module)
         autoloaded_weights = set(self._load_module("", self.module, weights))
+        logger.info(autoloaded_weights)
         return autoloaded_weights
 
 

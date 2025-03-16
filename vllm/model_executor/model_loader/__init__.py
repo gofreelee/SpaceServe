@@ -9,8 +9,14 @@ from vllm.model_executor.model_loader.utils import (
     get_architecture_class_name, get_model_architecture)
 
 
+from vllm.logger import init_logger
+
+logger = init_logger(__name__)
+
 def get_model(*, vllm_config: VllmConfig) -> nn.Module:
     loader = get_model_loader(vllm_config.load_config)
+    # logger.info(f"loader type is {type(loader)}")
+    # logger.info(f"{loader}")
     return loader.load_model(vllm_config=vllm_config)
 
 

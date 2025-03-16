@@ -77,6 +77,11 @@ class Executor(ExecutorBase):
         output = self.collective_rpc("execute_model",
                                      args=(scheduler_output, ))
         return output[0]
+    
+    def execute_vision_encoder(self, scheduler_output):
+        output = self.collective_rpc("execute_vision_encoder",
+                                     args=(scheduler_output, ))
+        return output
 
     def profile(self, is_start: bool = True):
         self.collective_rpc("profile", args=(is_start, ))

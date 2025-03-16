@@ -95,6 +95,7 @@ class EncoderScheduler:
     def schedule(self) -> "SchedulerOutput":
         logger.debug("Scheduling encoder requests...")
         scheduled_encoder_inputs: Dict[str, List[int]] = {}
+        scheduled_new_reqs: List[Request] = []
         encoder_budget = self.max_num_encoder_input_tokens
 
         # Schedule requests for encoder processing
@@ -108,7 +109,8 @@ class EncoderScheduler:
             (encoder_inputs_to_schedule,
              new_encoder_budget) = self._try_schedule_encoder_inputs(
                  request, encoder_budget)
-
+            logger.info(encoder_inputs_to_schedule)
+            logger.info(new_encoder_budget)
             if not encoder_inputs_to_schedule:
                 break  # Can't schedule this request
 
@@ -119,14 +121,31 @@ class EncoderScheduler:
             self.waiting.popleft()
             self.running.append(request)
             scheduled_encoder_inputs[request.request_id] = encoder_inputs_to_schedule
+
+            request.status = RequestStatus.RUNNING
+            scheduled_new_reqs.append(request)
+
             encoder_budget = new_encoder_budget
+        
+        # just for encoder, so I just need the req, set other fields to None or -1 
+        new_reqs_data = [
+            NewRequestData.from_request(req,
+                                        None, -1)
+            for req in scheduled_new_reqs
+        ]
 
         return SchedulerOutput(
             scheduled_encoder_inputs=scheduled_encoder_inputs,
             # Empty fields for compatibility
-            scheduled_new_reqs=[],
-            scheduled_resumed_reqs=[],
-            preempted_reqs=[],
+            scheduled_new_reqs = new_reqs_data,
+            # scheduled_resumed_reqs=[],
+            # preempted_reqs=[],
+            scheduled_cached_reqs=None,
+            num_scheduled_tokens=None,
+            total_num_scheduled_tokens=0,
+            num_common_prefix_blocks=0,
+            finished_req_ids=None,
+            free_encoder_input_ids=None
         )
       
 
@@ -160,17 +179,27 @@ class EncoderScheduler:
         schedulable = []
         
         # Filter inputs that need processing
-        for input_idx in request.encoder_input_indices:
-            if input_idx in request.processed_encoder_inputs:
-                continue
-            
-            # Check input size against remaining budget
-            input_size = request.get_encoder_input_size(input_idx)
+        print(request.mm_inputs)
+        print(request.mm_positions)
+        for i, item in enumerate(request.mm_positions):
+            input_size = item["length"]
             if input_size <= remaining_budget:
-                schedulable.append(input_idx)
+                schedulable.append(i)
                 remaining_budget -= input_size
             else:
-                break  # Can't fit this input in current budget
+                break
+
+        # for input_idx in request.encoder_input_indices:
+        #     if input_idx in request.processed_encoder_inputs:
+        #         continue
+            
+        #     # Check input size against remaining budget
+        #     input_size = request.get_encoder_input_size(input_idx)
+        #     if input_size <= remaining_budget:
+        #         schedulable.append(input_idx)
+        #         remaining_budget -= input_size
+        #     else:
+        #         break  # Can't fit this input in current budget
         
         return schedulable, remaining_budget
 
@@ -322,7 +351,8 @@ class EncoderScheduler:
         return SchedulerStats(
             num_running_reqs=len(self.running),
             num_waiting_reqs=len(self.waiting),
-            gpu_cache_usage=self.kv_cache_manager.usage,
+            #gpu_cache_usage=self.kv_cache_manager.usage,
+            gpu_cache_usage= 0,
         )
 
 

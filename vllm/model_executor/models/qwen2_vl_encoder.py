@@ -1015,7 +1015,7 @@ class Qwen2VLMultiModalProcessor(BaseMultiModalProcessor[Qwen2VLProcessingInfo]
 @MULTIMODAL_REGISTRY.register_processor(Qwen2VLMultiModalProcessor,
                                         info=Qwen2VLProcessingInfo,
                                         dummy_inputs=Qwen2VLDummyInputsBuilder)
-class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
+class Qwen2VLEncoder(nn.Module, SupportsMultiModal,
                                       SupportsLoRA, SupportsPP):
     packed_modules_mapping = {
         "qkv_proj": [
@@ -1069,21 +1069,21 @@ class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
             prefix=maybe_prefix(prefix, "visual"),
         )
 
-        self.language_model = init_vllm_registered_model(
-            vllm_config=vllm_config,
-            prefix=maybe_prefix(prefix, "language_model"),
-            architectures=["Qwen2ForCausalLM"],
-        )
+        # self.language_model = init_vllm_registered_model(
+        #     vllm_config=vllm_config,
+        #     prefix=maybe_prefix(prefix, "language_model"),
+        #     architectures=["Qwen2ForCausalLM"],
+        # )
 
-        self.make_empty_intermediate_tensors = (
-            self.language_model.make_empty_intermediate_tensors)
+        # self.make_empty_intermediate_tensors = (
+        #     self.language_model.make_empty_intermediate_tensors)
 
-    @cached_property
-    def sampler(self):
-        if hasattr(self.language_model, "sampler"):
-            return self.language_model.sampler
+    # @cached_property
+    # def sampler(self):
+    #     if hasattr(self.language_model, "sampler"):
+    #         return self.language_model.sampler
 
-        return get_sampler()
+    #     return get_sampler()
 
     def _maybe_ignore_quant_config(self, quant_config: QuantizationConfig):
         # GPTQ configs do not have a list of ignored modules, however AutoGPTQ
@@ -1232,8 +1232,8 @@ class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
                     **kwargs)
 
         return modalities
-
-    def get_multimodal_embeddings(
+    # get_multimodal_embeddings is deprecated in lizhicheng, use forward instead.
+    def forward(
             self, **kwargs) -> Optional[tuple[torch.Tensor, ...]]:
 
         modalities = self._parse_and_validate_multimodal_inputs(**kwargs)
@@ -1257,129 +1257,130 @@ class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
                 multimodal_embeddings += video_embeddings
 
         return multimodal_embeddings
+    
+    def get_multimodal_embeddings(self, **kwargs):
+        return self.forward(**kwargs)
 
-    def get_input_embeddings(
-        self,
-        input_ids: torch.Tensor,
-        multimodal_embeddings: Optional[tuple[torch.Tensor, ...]] = None,
-    ) -> torch.Tensor:
-        inputs_embeds = self.language_model.get_input_embeddings(input_ids)
-        if multimodal_embeddings is not None:
-            inputs_embeds = merge_multimodal_embeddings(
-                input_ids, inputs_embeds, multimodal_embeddings,
-                [self.config.image_token_id, self.config.video_token_id])
-        return inputs_embeds
+    # def get_input_embeddings(
+    #     self,
+    #     input_ids: torch.Tensor,
+    #     multimodal_embeddings: Optional[tuple[torch.Tensor, ...]] = None,
+    # ) -> torch.Tensor:
+    #     inputs_embeds = self.language_model.get_input_embeddings(input_ids)
+    #     if multimodal_embeddings is not None:
+    #         inputs_embeds = merge_multimodal_embeddings(
+    #             input_ids, inputs_embeds, multimodal_embeddings,
+    #             [self.config.image_token_id, self.config.video_token_id])
+    #     return inputs_embeds
 
-    def get_input_embeddings_v0(
-        self,
-        input_ids: torch.Tensor,
-        image_input: Optional[tuple[torch.Tensor, ...]] = None,
-        video_input: Optional[tuple[torch.Tensor, ...]] = None,
-    ) -> torch.Tensor:
+    # def get_input_embeddings_v0(
+    #     self,
+    #     input_ids: torch.Tensor,
+    #     image_input: Optional[tuple[torch.Tensor, ...]] = None,
+    #     video_input: Optional[tuple[torch.Tensor, ...]] = None,
+    # ) -> torch.Tensor:
 
-        inputs_embeds = self.get_input_embeddings(input_ids)
-        if image_input is not None:
-            image_embeds = self._process_image_input(image_input)
-            inputs_embeds = merge_multimodal_embeddings(
-                input_ids,
-                inputs_embeds,
-                image_embeds,
-                placeholder_token_id=self.config.image_token_id,
-            )
+    #     inputs_embeds = self.get_input_embeddings(input_ids)
+    #     if image_input is not None:
+    #         image_embeds = self._process_image_input(image_input)
+    #         inputs_embeds = merge_multimodal_embeddings(
+    #             input_ids,
+    #             inputs_embeds,
+    #             image_embeds,
+    #             placeholder_token_id=self.config.image_token_id,
+    #         )
 
-        if video_input is not None:
-            video_embeds = self._process_video_input(video_input)
-            inputs_embeds = merge_multimodal_embeddings(
-                input_ids,
-                inputs_embeds,
-                video_embeds,
-                placeholder_token_id=self.config.video_token_id,
-            )
-        return inputs_embeds
+    #     if video_input is not None:
+    #         video_embeds = self._process_video_input(video_input)
+    #         inputs_embeds = merge_multimodal_embeddings(
+    #             input_ids,
+    #             inputs_embeds,
+    #             video_embeds,
+    #             placeholder_token_id=self.config.video_token_id,
+    #         )
+    #     return inputs_embeds
 
-    def forward(
-        self,
-        input_ids: torch.Tensor,
-        positions: torch.Tensor,
-        kv_caches: List[torch.Tensor],
-        attn_metadata: AttentionMetadata,
-        intermediate_tensors: Optional[IntermediateTensors] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
-        **kwargs: object,
-    ) -> Union[torch.Tensor, IntermediateTensors]:
-        """Run forward pass for Qwen2-VL.
+    # def forward(
+    #     self,
+    #     input_ids: torch.Tensor,
+    #     positions: torch.Tensor,
+    #     kv_caches: List[torch.Tensor],
+    #     attn_metadata: AttentionMetadata,
+    #     intermediate_tensors: Optional[IntermediateTensors] = None,
+    #     inputs_embeds: Optional[torch.Tensor] = None,
+    #     **kwargs: object,
+    # ) -> Union[torch.Tensor, IntermediateTensors]:
+    #     """Run forward pass for Qwen2-VL.
 
-        Args:
-            input_ids: Flattened (concatenated) input_ids corresponding to a
-                batch.
-            positions: Flattened (concatenated) position ids corresponding to a
-                batch.
-                **NOTE**: If mrope is enabled (default setting for Qwen2-VL
-                opensource models), the shape will be `(3, seq_len)`,
-                otherwise it will be `(seq_len,).
-            pixel_values: Pixel values to be fed to a model.
-                `None` if no images are passed.
-            image_grid_thw: Tensor `(n_images, 3)` of image 3D grid in LLM.
-                `None` if no images are passed.
-            pixel_values_videos: Pixel values of videos to be fed to a model.
-                `None` if no videos are passed.
-            video_grid_thw: Tensor `(n_videos, 3)` of video 3D grid in LLM.
-                `None` if no videos are passed.
-        """
+    #     Args:
+    #         input_ids: Flattened (concatenated) input_ids corresponding to a
+    #             batch.
+    #         positions: Flattened (concatenated) position ids corresponding to a
+    #             batch.
+    #             **NOTE**: If mrope is enabled (default setting for Qwen2-VL
+    #             opensource models), the shape will be `(3, seq_len)`,
+    #             otherwise it will be `(seq_len,).
+    #         pixel_values: Pixel values to be fed to a model.
+    #             `None` if no images are passed.
+    #         image_grid_thw: Tensor `(n_images, 3)` of image 3D grid in LLM.
+    #             `None` if no images are passed.
+    #         pixel_values_videos: Pixel values of videos to be fed to a model.
+    #             `None` if no videos are passed.
+    #         video_grid_thw: Tensor `(n_videos, 3)` of video 3D grid in LLM.
+    #             `None` if no videos are passed.
+    #     """
 
-        if intermediate_tensors is not None:
-            inputs_embeds = None
+    #     if intermediate_tensors is not None:
+    #         inputs_embeds = None
 
-        # NOTE: In v1, inputs_embeds is always generated at model runner from
-        # `get_multimodal_embeddings` and `get_input_embeddings`, this
-        # condition is only for v0 compatibility.
-        elif inputs_embeds is None:
-            image_input = self._parse_and_validate_image_input(**kwargs)
-            video_input = self._parse_and_validate_video_input(**kwargs)
+    #     # NOTE: In v1, inputs_embeds is always generated at model runner from
+    #     # `get_multimodal_embeddings` and `get_input_embeddings`, this
+    #     # condition is only for v0 compatibility.
+    #     elif inputs_embeds is None:
+    #         image_input = self._parse_and_validate_image_input(**kwargs)
+    #         video_input = self._parse_and_validate_video_input(**kwargs)
 
-            if image_input is None and video_input is None:
-                inputs_embeds = None
-            else:
-                if uses_mrope(self.config):
-                    assert positions.ndim == 2 and positions.size(0) == 3, (
-                        "multimodal section rotary embedding requires "
-                        f"(3, seq_len) positions, but got {positions.size()}")
-                inputs_embeds = self.get_input_embeddings_v0(
-                    input_ids,
-                    image_input=image_input,
-                    video_input=video_input)
-                input_ids = None
+    #         if image_input is None and video_input is None:
+    #             inputs_embeds = None
+    #         else:
+    #             if uses_mrope(self.config):
+    #                 assert positions.ndim == 2 and positions.size(0) == 3, (
+    #                     "multimodal section rotary embedding requires "
+    #                     f"(3, seq_len) positions, but got {positions.size()}")
+    #             inputs_embeds = self.get_input_embeddings_v0(
+    #                 input_ids,
+    #                 image_input=image_input,
+    #                 video_input=video_input)
+    #             input_ids = None
 
-        hidden_states = self.language_model.model(
-            input_ids=input_ids,
-            positions=positions,
-            kv_caches=kv_caches,
-            attn_metadata=attn_metadata,
-            intermediate_tensors=intermediate_tensors,
-            inputs_embeds=inputs_embeds,
-        )
-        return hidden_states
+    #     hidden_states = self.language_model.model(
+    #         input_ids=input_ids,
+    #         positions=positions,
+    #         kv_caches=kv_caches,
+    #         attn_metadata=attn_metadata,
+    #         intermediate_tensors=intermediate_tensors,
+    #         inputs_embeds=inputs_embeds,
+    #     )
+    #     return hidden_states
 
-    def compute_logits(
-        self,
-        hidden_states: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
-    ) -> Optional[torch.Tensor]:
-        return self.language_model.compute_logits(hidden_states,
-                                                  sampling_metadata)
+    # def compute_logits(
+    #     self,
+    #     hidden_states: torch.Tensor,
+    #     sampling_metadata: SamplingMetadata,
+    # ) -> Optional[torch.Tensor]:
+    #     return self.language_model.compute_logits(hidden_states,
+    #                                               sampling_metadata)
 
-    def sample(
-        self,
-        logits: torch.Tensor,
-        sampling_metadata: SamplingMetadata,
-    ) -> Optional[SamplerOutput]:
-        return self.language_model.sample(logits, sampling_metadata)
+    # def sample(
+    #     self,
+    #     logits: torch.Tensor,
+    #     sampling_metadata: SamplingMetadata,
+    # ) -> Optional[SamplerOutput]:
+    #     return self.language_model.sample(logits, sampling_metadata)
 
     def load_weights(self, weights: Iterable[Tuple[str,
                                                    torch.Tensor]]) -> Set[str]:
-
-        loader = AutoWeightsLoader(self)
-        logger.info(type(self))
+        loader = AutoWeightsLoader(self,ignore_unexpected_prefixes=['language_model'])
         return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
 
     def get_mm_mapping(self) -> MultiModelKeys:

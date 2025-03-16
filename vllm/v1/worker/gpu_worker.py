@@ -235,6 +235,12 @@ class Worker:
     ) -> Optional[ModelRunnerOutput]:
         output = self.model_runner.execute_model(scheduler_output)
         return output if self.rank == 0 else None
+    
+    @torch.inference_mode()
+    def execute_vision_encoder(self, scheduler_output: "SchedulerOutput"):
+        logger.info(f"execute_vision_encoder: {scheduler_output}")
+        self.model_runner.update_for_encoder(scheduler_output)
+        self.model_runner._execute_encoder(scheduler_output)
 
     def profile(self, is_start: bool = True):
         if self.profiler is None:

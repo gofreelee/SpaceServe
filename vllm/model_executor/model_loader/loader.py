@@ -378,13 +378,19 @@ class DefaultModelLoader(BaseModelLoader):
         model_config = vllm_config.model_config
 
         target_device = torch.device(device_config.device)
+        # logger.info(f"model config is {model_config}") 
+        # logger.info(model_config)
+        # exit(0)
         with set_default_torch_dtype(model_config.dtype):
             with target_device:
                 model = _initialize_model(vllm_config=vllm_config)
-
+                logger.info(type(model))
+                logger.info(model)
             weights_to_load = {name for name, _ in model.named_parameters()}
+            logger.info(weights_to_load)
             loaded_weights = model.load_weights(
                 self._get_all_weights(model_config, model))
+            logger.info(loaded_weights)
             # We only enable strict check for non-quantized models
             # that have loaded weights tracking currently.
             if model_config.quantization is None and loaded_weights is not None:

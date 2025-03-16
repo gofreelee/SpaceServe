@@ -255,6 +255,7 @@ class ModelConfig:
         self.rope_scaling = rope_scaling
         self.rope_theta = rope_theta
         self.model_impl = model_impl
+        self.only_vision_encoder = False
 
         if hf_overrides is None:
             hf_overrides = {}

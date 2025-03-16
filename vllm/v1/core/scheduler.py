@@ -180,6 +180,7 @@ class Scheduler:
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
+            logger.info(encoder_inputs_to_schedule)
 
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
@@ -216,6 +217,7 @@ class Scheduler:
                  new_encoder_budget) = self._try_schedule_encoder_inputs(
                      request, num_computed_tokens, num_new_tokens,
                      encoder_budget)
+                logger.info(encoder_inputs_to_schedule)
                 if num_new_tokens == 0:
                     # The request cannot be scheduled.
                     break

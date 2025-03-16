@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-
+import sys
 import pickle
 import queue
 import signal
@@ -332,6 +332,9 @@ class EncoderCore:
                     VLLM_VERSION, vllm_config)
 
         # Setup Model.
+        vllm_config.model_config.only_vision_encoder = True
+        self.model_executor = executor_class(vllm_config)
+        print(self.model_executor)
         #self.model_executor = executor_class(vllm_config)
 
         #Setup KV Caches and update CacheConfig after profiling.
@@ -341,6 +344,7 @@ class EncoderCore:
         # vllm_config.cache_config.num_cpu_blocks = num_cpu_blocks
 
         #Setup scheduler.
+        vllm_config.model_config.only_vision_encoder = True
         self.scheduler = EncoderScheduler(
             scheduler_config=vllm_config.scheduler_config,
             model_config=vllm_config.model_config,
@@ -378,7 +382,7 @@ class EncoderCore:
         self.scheduler.finish_requests(request_ids,
                                        RequestStatus.FINISHED_ABORTED)
 
-    def step(self) -> EngineCoreOutputs:
+    def step(self, f = sys.stdout) -> EngineCoreOutputs:
         """Schedule, execute, and make output."""
         engine_core_outputs = EngineCoreOutputs(
             outputs=[], scheduler_stats=self.scheduler.make_stats())
@@ -388,10 +392,19 @@ class EncoderCore:
 
         # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
         scheduler_output = self.scheduler.schedule()
+        logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
+        self.model_executor.execute_vision_encoder(scheduler_output)    
+        # executor to run_encoder
+
+        original_stdout = sys.stdout
+        sys.stdout = f
+        print(scheduler_output)
+        sys.stdout = original_stdout
+        #logger.info(self.model_executor.execute_model)
         #output = self.model_executor.execute_model(scheduler_output)
         # engine_core_outputs = self.scheduler.update_from_output(
         #     scheduler_output, output)
-        return engine_core_outputs
+        return engine_core_outputs 
 
     def shutdown(self):
         logger.info("shutdown")
@@ -485,34 +498,33 @@ class EncoderCoreProc(EncoderCore):
 
         # Loop until process is sent a SIGINT or SIGTERM
         logger.info("EncoderCoreProc run_busy_loop")
+        fd = open("output.txt", "w")
         while True:
-            # 1) Poll the input queue until there is work to do.
-            # if not self.scheduler.has_unfinished_requests():
-            #     while True:
-            #         logger.info(f"in while true, self.scheduler.has_unfinished_requests() is {self.scheduler.has_unfinished_requests()}")
-            #         try:
-            #             req = self.input_queue.get(timeout=POLLING_TIMEOUT_S)
-            #             self._handle_client_request(req)
-            #             break
-            #         except queue.Empty:
-            #             logger.debug("EncoderCore busy loop waiting.")
-            #             # Break out the loop so we can log_stats in step().
-            #             if self.log_stats:
-            #                 break
-            #         except BaseException:
-            #             raise
-            # logger.info(f"self.input_queue.empty() is {self.input_queue.empty()}")
+            #1) Poll the input queue until there is work to do.
+            if not self.scheduler.has_unfinished_requests():
+                while True:
+                    try:
+                        req = self.input_queue.get(timeout=POLLING_TIMEOUT_S)
+                        self._handle_client_request(req)
+                        break
+                    except queue.Empty:
+                        logger.debug("EncoderCore busy loop waiting.")
+                        # Break out the loop so we can log_stats in step().
+                        if self.log_stats:
+                            break
+                    except BaseException:
+                        raise
             # logger.info(f"self.scheduler.has_unfinished_requests() is {self.scheduler.has_unfinished_requests()}")
-            # # # 2) Handle any new client requests (Abort or Add).
-            # while not self.input_queue.empty():
-            #     logger.info("there is new req in encoder process")
-            #     req = self.input_queue.get_nowait()
-            #     self._handle_client_request(req)
+            # # 2) Handle any new client requests (Abort or Add).
+            while not self.input_queue.empty():
+                logger.info("there is new req in encoder process")
+                req = self.input_queue.get_nowait()
+                self._handle_client_request(req)
             pass
 
             # # 3) Step the engine core.
-            #outputs = self.step()
-
+            outputs = self.step(fd)
+            
             # # 5) Put EngineCoreOutputs into the output queue.
             # self.output_queue.put_nowait(outputs)
 
