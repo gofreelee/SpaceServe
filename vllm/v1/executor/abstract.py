@@ -63,6 +63,9 @@ class Executor(ExecutorBase):
         # memory size across all workers to make sure all the memory
         # operators can be applied to all workers.
         return min(output)
+    
+    def warm_model(self):
+        self.collective_rpc("warm_model")
 
     def get_kv_cache_spec(self) -> KVCacheSpec:
         output = self.collective_rpc("get_kv_cache_spec")

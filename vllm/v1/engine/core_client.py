@@ -192,6 +192,7 @@ class MPClient(EngineCoreClient):
             output_path=output_path,
             process_name="EngineCore",
             target_fn=EngineCoreProc.run_engine_core,
+            #target_fn=EncoderCoreProc.run_encoder_core,
             process_kwargs={
                 "vllm_config": vllm_config,
                 "executor_class": executor_class,
@@ -385,6 +386,7 @@ class AsyncMPClient(MPClient):
     async def add_request_async(self, request: EngineCoreRequest) -> None:
         # NOTE: text prompt is not needed in the core engine as it has been
         # tokenized.
+        logger.info("request prompt is %s", request.prompt)
         request.prompt = None
         await self._send_input(EngineCoreRequestType.ADD, request)
         await self._send_input_toencoder(EngineCoreRequestType.ADD, request)

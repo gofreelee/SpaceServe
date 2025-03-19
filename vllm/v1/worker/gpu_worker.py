@@ -194,6 +194,10 @@ class Worker:
 
     def get_kv_cache_spec(self) -> KVCacheSpec:
         return self.model_runner.get_kv_cache_spec()
+    
+    def warm_model(self):
+        # add by lizhicheng, I add the function for warm up the encoder model e.g. qwen2_vl encoder
+        self.model_runner.warm_model()
 
     def initialize_cache(self, kv_cache_config: KVCacheConfig) -> None:
         """Allocate GPU KV cache with the specified kv_cache_config."""
@@ -241,6 +245,11 @@ class Worker:
         logger.info(f"execute_vision_encoder: {scheduler_output}")
         self.model_runner.update_for_encoder(scheduler_output)
         self.model_runner._execute_encoder(scheduler_output)
+        encoder_cache = self.model_runner.get_encoder_cache()
+        logger.info(f"encoder_cache: {encoder_cache}")
+        if scheduler_output.scheduled_new_reqs == None or len(scheduler_output.scheduled_new_reqs) == 0:
+            return None
+        return encoder_cache
 
     def profile(self, is_start: bool = True):
         if self.profiler is None:

@@ -1189,7 +1189,10 @@ class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
             image_embeds = image_input["image_embeds"].type(self.visual.dtype)
         else:
             pixel_values = image_input["pixel_values"].type(self.visual.dtype)
+            import time;s_time = time.time()
             image_embeds = self.visual(pixel_values, grid_thw=grid_thw)
+            e_time = time.time()
+            logger.info(f"Time taken for encoderandllm visual model: {1000 * (e_time - s_time)}")
 
         # Split concatenated embeddings for each image item.
         merge_size = self.visual.spatial_merge_size
@@ -1235,7 +1238,6 @@ class Qwen2VLForConditionalGeneration(nn.Module, SupportsMultiModal,
 
     def get_multimodal_embeddings(
             self, **kwargs) -> Optional[tuple[torch.Tensor, ...]]:
-
         modalities = self._parse_and_validate_multimodal_inputs(**kwargs)
         if not modalities:
             return None

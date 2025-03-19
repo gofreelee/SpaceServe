@@ -647,6 +647,19 @@ class GPUModelRunner:
             req_id_output_token_ids, skip_copy=not batch_changed)
         return sampling_metadata
 
+    @torch.inference_mode()
+    def warm_model(self):
+        # Warm the model.
+        # NOTE: This is a no-op for most models. For models with dynamic
+        # computation graphs (e.g., Qwen2-VL), this function is overridden.
+        #random_input_ids = torch.rand(6048, 1176, device = 'cuda')
+        logger.info(f"self.max num tokens is {self.max_num_tokens}")
+        model = self.model
+        #logger.info(type(model))
+        model.warm_model()
+
+
+    #add by lizhicheng
     def update_for_encoder(self, scheduler_output):
         for new_req_data in scheduler_output.scheduled_new_reqs:
             req_id = new_req_data.req_id
@@ -698,7 +711,7 @@ class GPUModelRunner:
         # logger.info(f"{scheduler_output.scheduled_new_reqs}")
 
         scheduled_encoder_inputs = scheduler_output.scheduled_encoder_inputs
-        logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
+        #logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
         if not scheduled_encoder_inputs:
             #print("No encoder inputs to process in gpu_model_runner:648")
             return
@@ -729,7 +742,7 @@ class GPUModelRunner:
             batched_mm_inputs = MultiModalKwargs.batch(grouped_mm_inputs)
             batched_mm_inputs = MultiModalKwargs.as_kwargs(batched_mm_inputs,
                                                            device=self.device)
-            logger.info(f"batched_mm_inputs are {batched_mm_inputs}") 
+            #logger.info(f"batched_mm_inputs are {batched_mm_inputs}") 
             # Run the encoder.
             # `curr_group_outputs` is either of the following:
             # 1. A tensor of shape (num_items, feature_size, hidden_size)
@@ -737,11 +750,14 @@ class GPUModelRunner:
             # 2. A list or tuple (length: num_items) of tensors, each of shape
             # (feature_size, hidden_size) in case the feature size is dynamic
             # depending on the input multimodal items.
-            logger.info(f"self model is {self.model}")
-            logger.info(f"self model multimodal embeddings are  {self.model.get_multimodal_embeddings}")
+            # logger.info(f"self model is {self.model}")
+            # logger.info(f"self model multimodal embeddings are  {self.model.get_multimodal_embeddings}")
+            import time;s_time = time.time()
             curr_group_outputs = self.model.get_multimodal_embeddings(
                 **batched_mm_inputs)
-            print(f"curr_group_outputs are {curr_group_outputs}")
+            e_time = time.time()
+            logger.info(f"encoderforward time is {1000 * (e_time - s_time)}, res is {curr_group_outputs}")
+            #logger.info(self.model.get_multimodal_embeddings)
 
             for output in curr_group_outputs:
                 encoder_outputs.append(output)
@@ -753,6 +769,9 @@ class GPUModelRunner:
             print(f"encoder cache is {self.encoder_cache[req_id]}")
             print(f"type of encoder output is {type(output)}")
             self.encoder_cache[req_id][input_id] = output
+
+    def get_encoder_cache(self):
+        return self.encoder_cache
 
     def _gather_encoder_outputs(
         self,
@@ -802,7 +821,7 @@ class GPUModelRunner:
         self,
         scheduler_output: "SchedulerOutput",
     ) -> ModelRunnerOutput:
-        import traceback;traceback.print_stack()
+        #import traceback;traceback.print_stack()
         batch_changed = self._update_states(scheduler_output)
         if self.is_multimodal_model:
             # Run the multimodal encoder if any.
@@ -811,7 +830,7 @@ class GPUModelRunner:
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
         else:
             encoder_outputs = []
-        logger.info(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")
+        #logger.info(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")
 
         # Prepare the decoder inputs.
         attn_metadata, logits_indices = self._prepare_inputs(scheduler_output)
@@ -951,6 +970,7 @@ class GPUModelRunner:
         kv_caches: Optional[List[torch.Tensor]] = None,
     ) -> torch.Tensor:
         model = self.model
+        #logger.info(model)
         if kv_caches is None:
             kv_caches = self.kv_caches
         if self.is_multimodal_model:

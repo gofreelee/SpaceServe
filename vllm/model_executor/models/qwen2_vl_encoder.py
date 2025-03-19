@@ -1189,7 +1189,14 @@ class Qwen2VLEncoder(nn.Module, SupportsMultiModal,
             image_embeds = image_input["image_embeds"].type(self.visual.dtype)
         else:
             pixel_values = image_input["pixel_values"].type(self.visual.dtype)
+            logger.info(pixel_values.shape)
+            logger.info(grid_thw.shape)
+            logger.info(grid_thw)
+            import time;s_time = time.time()
+            logger.info(pixel_values.shape)
             image_embeds = self.visual(pixel_values, grid_thw=grid_thw)
+            e_time = time.time()
+            logger.info(f"Time taken for just encoder visual model: {1000 * (e_time - s_time)}")
 
         # Split concatenated embeddings for each image item.
         merge_size = self.visual.spatial_merge_size
@@ -1233,8 +1240,7 @@ class Qwen2VLEncoder(nn.Module, SupportsMultiModal,
 
         return modalities
     # get_multimodal_embeddings is deprecated in lizhicheng, use forward instead.
-    def forward(
-            self, **kwargs) -> Optional[tuple[torch.Tensor, ...]]:
+    def forward(self, **kwargs) -> Optional[tuple[torch.Tensor, ...]]:
 
         modalities = self._parse_and_validate_multimodal_inputs(**kwargs)
         if not modalities:
@@ -1261,6 +1267,10 @@ class Qwen2VLEncoder(nn.Module, SupportsMultiModal,
     def get_multimodal_embeddings(self, **kwargs):
         return self.forward(**kwargs)
 
+    def warm_model(self):
+        pixel = torch.rand(6048, 1176, device = 'cuda')
+        grid = torch.tensor([[1, 84, 72]], device='cuda')
+        self.visual(pixel, grid_thw = grid)
     # def get_input_embeddings(
     #     self,
     #     input_ids: torch.Tensor,

@@ -43,6 +43,7 @@ class EngineCore:
         self,
         vllm_config: VllmConfig,
         executor_class: Type[Executor],
+        encoder_result_queue = None 
     ):
         assert vllm_config.model_config.runner_type != "pooling"
 
@@ -67,6 +68,7 @@ class EngineCore:
             cache_config=vllm_config.cache_config,
             lora_config=vllm_config.lora_config,
         )
+        self.encoder_result_queue = encoder_result_queue
 
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
@@ -131,6 +133,16 @@ class EngineCore:
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
 
         # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
+        # try:
+        #     while self.encoder_result_queue.empty():
+        #         pass
+        #     import time;s_time = time.time()
+        #     encoder_result_from_encoder_proc = self.encoder_result_queue.get_nowait()
+        #     e_time = time.time()
+        #     logger.info(f"encoder_result_from_encoder_proc is {encoder_result_from_encoder_proc}")
+        #     logger.info(f"get encoder_result_from_encoder_proc time is {1000 * (e_time - s_time)}")
+        # except queue.Empty:
+        #     encoder_result_from_encoder_proc = None
         scheduler_output = self.scheduler.schedule()
         logger.info(f"scheduler_output is {scheduler_output}")
         output = self.model_executor.execute_model(scheduler_output)
@@ -161,7 +173,7 @@ class EngineCoreProc(EngineCore):
         log_stats: bool = False,
         encoder_result_queue = None,
     ):
-        super().__init__(vllm_config, executor_class)
+        super().__init__(vllm_config, executor_class, encoder_result_queue)
 
         self.log_stats = log_stats
 
@@ -172,7 +184,7 @@ class EngineCoreProc(EngineCore):
         # Threads handle Socket <-> Queues and core_busy_loop uses Queue.
         self.input_queue: queue.Queue[EngineCoreRequestUnion] = queue.Queue()
         self.output_queue: queue.Queue[EngineCoreOutputs] = queue.Queue()
-        self.encoder_result_queue = encoder_result_queue
+        #self.encoder_result_queue = encoder_result_queue
         threading.Thread(target=self.process_input_socket,
                          args=(input_path, ),
                          daemon=True).start()
@@ -227,7 +239,7 @@ class EngineCoreProc(EngineCore):
 
     def run_busy_loop(self):
         """Core busy loop of the EngineCore."""
-
+        
         # Loop until process is sent a SIGINT or SIGTERM
         while True:
             # 1) Poll the input queue until there is work to do.
@@ -325,6 +337,7 @@ class EncoderCore:
         self,
         vllm_config: VllmConfig,
         executor_class: Type[Executor],
+        encoder_result_queue = None
     ):
         assert vllm_config.model_config.runner_type != "pooling"
 
@@ -336,7 +349,7 @@ class EncoderCore:
         self.model_executor = executor_class(vllm_config)
         print(self.model_executor)
         #self.model_executor = executor_class(vllm_config)
-
+        self.model_executor.warm_model()
         #Setup KV Caches and update CacheConfig after profiling.
         # num_gpu_blocks, num_cpu_blocks = self._initialize_kv_caches(
         #     vllm_config)
@@ -351,7 +364,8 @@ class EncoderCore:
             cache_config=vllm_config.cache_config,
             lora_config=vllm_config.lora_config,
         )
-
+        self.encoder_result_queue = encoder_result_queue
+        print(f"self.encoder_result_queue is {self.encoder_result_queue}")
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
 
@@ -392,14 +406,23 @@ class EncoderCore:
 
         # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
         scheduler_output = self.scheduler.schedule()
-        logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
-        self.model_executor.execute_vision_encoder(scheduler_output)    
+        
+        #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
+        output = None
+        if scheduler_output.scheduled_new_reqs != None and len(scheduler_output.scheduled_new_reqs) > 0:
+            output =  self.model_executor.execute_vision_encoder(scheduler_output)    
+            #then i should send the output to the client
+            #logger.info(f"encoder queue add {output}")
+            import time;s_time = time.time()
+            self.encoder_result_queue.put(output)
+            e_time = time.time()
+            logger.info(f"add time is {1000 * (e_time - s_time)}")
         # executor to run_encoder
-
-        original_stdout = sys.stdout
-        sys.stdout = f
-        print(scheduler_output)
-        sys.stdout = original_stdout
+        #logger.info(f"in encoder proc is {output}")
+        # original_stdout = sys.stdout
+        # sys.stdout = f
+        # print(scheduler_output)
+        # sys.stdout = original_stdout
         #logger.info(self.model_executor.execute_model)
         #output = self.model_executor.execute_model(scheduler_output)
         # engine_core_outputs = self.scheduler.update_from_output(
@@ -430,7 +453,7 @@ class EncoderCoreProc(EncoderCore):
         log_stats: bool = False,
         encoder_result_queue = None
     ):
-        super().__init__(vllm_config, executor_class)
+        super().__init__(vllm_config, executor_class, encoder_result_queue)
 
         self.log_stats = log_stats
 
@@ -441,8 +464,7 @@ class EncoderCoreProc(EncoderCore):
         # Threads handle Socket <-> Queues and core_busy_loop uses Queue.
         self.input_queue: queue.Queue[EngineCoreRequestUnion] = queue.Queue()
         self.output_queue: queue.Queue[EngineCoreOutputs] = queue.Queue()
-        self.encoder_result_queue = encoder_result_queue
-        print(f"self.encoder_result_queue is {self.encoder_result_queue}")
+        #self.encoder_result_queue = encoder_result_queue
         threading.Thread(target=self.process_input_socket,
                          args=(input_path, ),
                          daemon=True).start()
@@ -524,6 +546,8 @@ class EncoderCoreProc(EncoderCore):
 
             # # 3) Step the engine core.
             outputs = self.step(fd)
+            #logger.info(f"outputs in encodercoreproc is {outputs}")
+            
             
             # # 5) Put EngineCoreOutputs into the output queue.
             # self.output_queue.put_nowait(outputs)
@@ -571,6 +595,7 @@ class EncoderCoreProc(EncoderCore):
                     raise ValueError(f"Unknown RequestType: {request_type}")
 
                 # Push to input queue for core busy loop.
+                logger.info(f"encoderproc add request {request}")
                 self.input_queue.put_nowait(request)
 
     def process_output_socket(self, output_path: str):
