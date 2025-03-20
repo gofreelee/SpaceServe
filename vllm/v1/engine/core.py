@@ -191,6 +191,7 @@ class EngineCoreProc(EngineCore):
         threading.Thread(target=self.process_output_socket,
                          args=(output_path, ),
                          daemon=True).start()
+        
 
         # Send Readiness signal to EngineClient.
         ready_pipe.send({"status": "READY"})
@@ -261,6 +262,10 @@ class EngineCoreProc(EngineCore):
             while not self.input_queue.empty():
                 req = self.input_queue.get_nowait()
                 self._handle_client_request(req)
+            
+            while not self.encoder_result_queue.empty():
+                encoder_result = self.encoder_result_queue.get_nowait()
+                logger.info(f"encoder_result is {encoder_result}")
 
             # 3) Step the engine core.
             outputs = self.step()
@@ -281,6 +286,11 @@ class EngineCoreProc(EngineCore):
             # TODO: make an EngineCoreAbort wrapper
             assert isinstance(request, list)
             self.abort_requests(request)
+    
+    #add by lzc
+    def _handle_encoder_result(self, encoder_result):
+        '''Handle encoder result from encoder process'''
+        
 
     def process_input_socket(self, input_path: str):
         """Input socket IO thread."""
@@ -325,7 +335,17 @@ class EngineCoreProc(EngineCore):
                 encoder.encode_into(outputs, buffer)
                 socket.send_multipart((buffer, ), copy=False)
 
-
+    # add by lzc
+    # def process_encoder_results(self):
+    #     logger.info("process_encoder_results")
+    #     while True:
+    #         try:
+    #             encoder_result = self.encoder_result_queue.get()
+    #             logger.info(f"encoder_result is {encoder_result}")
+    #             for item in encoder_result:
+    #                 logger.info(item[0])
+    #         except queue.Empty:
+    #             pass
 
 
 
