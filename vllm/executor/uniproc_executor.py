@@ -20,7 +20,7 @@ class UniProcExecutor(ExecutorBase):
 
     uses_ray: bool = False
 
-    def _init_executor(self) -> None:
+    def _init_executor(self, encoder_cache = None) -> None:
         """Initialize the worker and load the model.
         """
         self.driver_worker = WorkerWrapperBase(vllm_config=self.vllm_config,
@@ -33,6 +33,7 @@ class UniProcExecutor(ExecutorBase):
             vllm_config=self.vllm_config,
             local_rank=local_rank,
             rank=rank,
+            encoder_cache=encoder_cache,
             distributed_init_method=distributed_init_method,
             is_driver_worker=(not self.parallel_config)
             or (rank % self.parallel_config.tensor_parallel_size == 0),

@@ -36,6 +36,7 @@ class ExecutorBase(ABC):
     def __init__(
         self,
         vllm_config: VllmConfig,
+        encoder_cache = None,
     ) -> None:
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
@@ -48,11 +49,11 @@ class ExecutorBase(ABC):
         self.speculative_config = vllm_config.speculative_config
         self.prompt_adapter_config = vllm_config.prompt_adapter_config
         self.observability_config = vllm_config.observability_config
-        self._init_executor()
+        self._init_executor(encoder_cache)
         self.is_sleeping = False
 
     @abstractmethod
-    def _init_executor(self) -> None:
+    def _init_executor(self, encoder_cache = None) -> None:
         raise NotImplementedError
 
     @abstractmethod

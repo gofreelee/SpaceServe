@@ -38,8 +38,9 @@ class Worker:
         rank: int,
         distributed_init_method: str,
         is_driver_worker: bool = False,
+        encoder_cache = None
     ):
-
+        import traceback;traceback.print_stack()
         # TODO: use WorkerBase.__init__(self, vllm_config=vllm_config)
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
@@ -57,6 +58,8 @@ class Worker:
         self.local_rank = local_rank
         self.rank = rank
         self.distributed_init_method = distributed_init_method
+        self.encoder_cache = encoder_cache  
+        logger.info(f"self.encoder_cache is {self.encoder_cache}")
 
         if self.model_config.trust_remote_code:
             # note: lazy import to avoid importing torch before initializing
@@ -127,7 +130,7 @@ class Worker:
         set_random_seed(self.model_config.seed)
 
         # Construct the model runner
-        self.model_runner = GPUModelRunner(self.vllm_config, self.device)
+        self.model_runner = GPUModelRunner(self.vllm_config, self.device, self.encoder_cache)
 
     def load_model(self) -> None:
         if self.vllm_config.model_config.enable_sleep_mode:

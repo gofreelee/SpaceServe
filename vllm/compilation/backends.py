@@ -586,7 +586,7 @@ class VllmBackend:
         dynamo_time = time.time() - torch_compile_start_time
         logger.info("Dynamo bytecode transform time: %.2f s", dynamo_time)
         self.compilation_config.compilation_time += dynamo_time
-        import traceback;traceback.print_stack()
+        #import traceback;traceback.print_stack()
 
         # we control the compilation process, each instance can only be
         # called once

@@ -53,7 +53,9 @@ class EngineCore:
         # Setup Model.
         logger.info(vllm_config)
         logger.info(executor_class)
-        self.model_executor = executor_class(vllm_config)
+        self.encoder_result_cache = {}
+        self.encoder_result_queue = encoder_result_queue
+        self.model_executor = executor_class(vllm_config, self.encoder_result_cache)
         logger.info(type(self.model_executor))
         # Setup KV Caches and update CacheConfig after profiling.
         num_gpu_blocks, num_cpu_blocks = self._initialize_kv_caches(
@@ -67,10 +69,9 @@ class EngineCore:
             model_config=vllm_config.model_config,
             cache_config=vllm_config.cache_config,
             lora_config=vllm_config.lora_config,
+            encoder_cache = self.encoder_result_cache
         )
-        self.encoder_result_queue = encoder_result_queue
 
-        self.encoder_result_cache = {}
 
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
@@ -126,6 +127,19 @@ class EngineCore:
         # (i.e. client-aborted vs stop criteria met).
         self.scheduler.finish_requests(request_ids,
                                        RequestStatus.FINISHED_ABORTED)
+    #add by lzc
+    def _handle_encoder_result(self, encoder_result):
+        '''Handle encoder result from encoder process'''
+        for item in encoder_result:
+            logger.info(type(item))
+            #item is dict type
+            for k, v in item.items():
+                for v_k, v_v in v.items():
+                    if k in self.encoder_result_cache:
+                        self.encoder_result_cache[k][v_k] = v_v
+                    else:
+                        self.encoder_result_cache[k] = {v_k: v_v}
+
 
     def step(self) -> EngineCoreOutputs:
         """Schedule, execute, and make output."""
@@ -146,7 +160,14 @@ class EngineCore:
         # except queue.Empty:
         #     encoder_result_from_encoder_proc = None
         scheduler_output = self.scheduler.schedule()
-        logger.info(f"scheduler_output is {scheduler_output}")
+        while scheduler_output.total_num_scheduled_tokens == 0:
+            scheduler_output = self.scheduler.schedule()
+            logger.info("in EngineCore step, scheduler_output is 0")
+            if not self.encoder_result_queue.empty():
+                encoder_result = self.encoder_result_queue.get_nowait()
+                self._handle_encoder_result(encoder_result)
+        logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
+        #logger.info(f"scheduler_output is {scheduler_output}")
         output = self.model_executor.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, output)
@@ -289,19 +310,6 @@ class EngineCoreProc(EngineCore):
             assert isinstance(request, list)
             self.abort_requests(request)
     
-    #add by lzc
-    def _handle_encoder_result(self, encoder_result):
-        '''Handle encoder result from encoder process'''
-        for item in encoder_result:
-            logger.info(type(item))
-            #item is dict type
-            for k, v in item.items():
-                for v_k, v_v in v.items():
-                    if k in self.encoder_result_cache:
-                        self.encoder_result_cache[k][v_k] = v_v
-                    else:
-                        self.encoder_result_cache[k] = {v_k: v_v}
-
     def process_input_socket(self, input_path: str):
         """Input socket IO thread."""
 

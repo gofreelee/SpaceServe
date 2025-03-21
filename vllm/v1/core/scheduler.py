@@ -31,10 +31,13 @@ class Scheduler:
         model_config: ModelConfig,
         cache_config: CacheConfig,
         lora_config: Optional[LoRAConfig],
+        encoder_cache = None
     ) -> None:
         self.scheduler_config = scheduler_config
         self.cache_config = cache_config
         self.lora_config = lora_config
+        self.encoder_cache = encoder_cache
+        #import traceback;traceback.print_stack()
         # TODO: Support LoRA.
         assert lora_config is None, "V1 does not support LoRA yet."
 
@@ -114,7 +117,7 @@ class Scheduler:
         # Encoder-related.
         scheduled_encoder_inputs: Dict[str, List[int]] = {}
         encoder_budget = self.max_num_encoder_input_tokens
-
+        logger.info(f"encoder_cache in scheduler {self.encoder_cache}")
         # First, schedule the RUNNING requests.
         req_index = 0
         while req_index < len(self.running) and token_budget > 0:
@@ -403,6 +406,17 @@ class Scheduler:
                     # the request in this step.
                     num_new_tokens = 0
                 break
+
+            # verify the encoder_cache has the encoder results
+            if request.request_id not in self.encoder_cache or \
+            (request.request_id in self.encoder_cache and i not in self.encoder_cache[request.request_id]):
+                logger.info(f"request_id is {request.request_id} and i is {i}")
+                logger.info(f"encoder_cache is {self.encoder_cache}")
+                if num_computed_tokens < start_pos:
+                    num_new_tokens = start_pos - num_computed_tokens
+                else:
+                    num_new_tokens = 0
+                break 
 
             encoder_budget -= num_encoder_tokens
             encoder_inputs_to_schedule.append(i)

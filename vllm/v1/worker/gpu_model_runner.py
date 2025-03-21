@@ -46,6 +46,7 @@ class GPUModelRunner:
         self,
         vllm_config: VllmConfig,
         device: torch.device,
+        encoder_cache = None
     ):
         print(f"vllm_config: {vllm_config}")
         self.vllm_config = vllm_config
@@ -58,7 +59,7 @@ class GPUModelRunner:
         self.speculative_config = vllm_config.speculative_config
         self.prompt_adapter_config = vllm_config.prompt_adapter_config
         self.observability_config = vllm_config.observability_config
-
+        
         model_config = self.model_config
         cache_config = self.cache_config
         scheduler_config = self.scheduler_config
@@ -109,8 +110,11 @@ class GPUModelRunner:
         # self.model: nn.Module  # Set after load_model
         self.kv_caches: List[torch.Tensor] = []
         # req_id -> (input_id -> encoder_output)
-        self.encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
-
+        #self.encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
+        if encoder_cache != None:
+            self.encoder_cache = encoder_cache
+        else:
+            self.encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
         # Request states.
         self.requests: Dict[str, CachedRequestState] = {}
         #self.encoder_requests: Dict[str, CachedRequestState] = {}
@@ -716,6 +720,7 @@ class GPUModelRunner:
             #print("No encoder inputs to process in gpu_model_runner:648")
             return
 
+        logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
         # Batch the multi-modal inputs.
         mm_inputs: List[MultiModalKwargs] = []
         req_input_ids: List[Tuple[str, int]] = []
@@ -826,6 +831,7 @@ class GPUModelRunner:
         if self.is_multimodal_model:
             # Run the multimodal encoder if any.
             logger.info(f"scheduler_output: {scheduler_output}")
+            logger.info(f"self.encoder_cache is  {self.encoder_cache}")
             self._execute_encoder(scheduler_output)
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
         else:
