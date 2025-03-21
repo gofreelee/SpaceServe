@@ -70,6 +70,8 @@ class EngineCore:
         )
         self.encoder_result_queue = encoder_result_queue
 
+        self.encoder_result_cache = {}
+
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
 
@@ -265,7 +267,7 @@ class EngineCoreProc(EngineCore):
             
             while not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
-                logger.info(f"encoder_result is {encoder_result}")
+                self._handle_encoder_result(encoder_result)
 
             # 3) Step the engine core.
             outputs = self.step()
@@ -290,7 +292,15 @@ class EngineCoreProc(EngineCore):
     #add by lzc
     def _handle_encoder_result(self, encoder_result):
         '''Handle encoder result from encoder process'''
-        
+        for item in encoder_result:
+            logger.info(type(item))
+            #item is dict type
+            for k, v in item.items():
+                for v_k, v_v in v.items():
+                    if k in self.encoder_result_cache:
+                        self.encoder_result_cache[k][v_k] = v_v
+                    else:
+                        self.encoder_result_cache[k] = {v_k: v_v}
 
     def process_input_socket(self, input_path: str):
         """Input socket IO thread."""
