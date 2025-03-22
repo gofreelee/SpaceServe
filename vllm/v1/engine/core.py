@@ -443,6 +443,7 @@ class EncoderCore:
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
 
         # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
+        # muxserver
         scheduler_output = self.scheduler.schedule()
         
         #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
