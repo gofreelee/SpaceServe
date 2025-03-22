@@ -830,11 +830,11 @@ class GPUModelRunner:
         batch_changed = self._update_states(scheduler_output)
         if self.is_multimodal_model:
             # Run the multimodal encoder if any.
-            logger.info(f"scheduler_output_encoder_inputs: {scheduler_output.scheduled_encoder_inputs}")
-            logger.info(f"self.encoder_cache is  {self.encoder_cache}")
+            # logger.info(f"scheduler_output_encoder_inputs: {scheduler_output.scheduled_encoder_inputs}")
+            # logger.info(f"self.encoder_cache is  {self.encoder_cache}")
             #self._execute_encoder(scheduler_output)
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
-            logger.info(f"encoder_outputs {encoder_outputs}")
+            #logger.info(f"encoder_outputs {encoder_outputs}")
         else:
             encoder_outputs = []
         #logger.info(f"encoder outputs: {encoder_outputs},  is_multimodal_model: {self.is_multimodal_model}")

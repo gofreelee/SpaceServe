@@ -162,11 +162,11 @@ class EngineCore:
         scheduler_output = self.scheduler.schedule()
         while scheduler_output.total_num_scheduled_tokens == 0:
             scheduler_output = self.scheduler.schedule()
-            logger.info("in EngineCore step, scheduler_output is 0")
+            #logger.info("in EngineCore step, scheduler_output is 0")
             if not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
-        logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
+        #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
         output = self.model_executor.execute_model(scheduler_output)
         engine_core_outputs = self.scheduler.update_from_output(

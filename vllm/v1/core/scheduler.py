@@ -105,7 +105,7 @@ class Scheduler:
         # so that each request's num_computed_tokens can catch up its
         # num_tokens. This is general enough to cover chunked prefills,
         # prefix caching, and the "jump decoding" optimization in the future.
-        logger.debug("Scheduling requests...")
+        #logger.debug("Scheduling requests...")
         scheduled_new_reqs: List[Request] = []
         scheduled_resumed_reqs: List[Request] = []
         scheduled_running_reqs: List[Request] = []
@@ -117,7 +117,7 @@ class Scheduler:
         # Encoder-related.
         scheduled_encoder_inputs: Dict[str, List[int]] = {}
         encoder_budget = self.max_num_encoder_input_tokens
-        logger.info(f"encoder_cache in scheduler {self.encoder_cache}")
+        #logger.info(f"encoder_cache in scheduler {self.encoder_cache}")
         # First, schedule the RUNNING requests.
         req_index = 0
         while req_index < len(self.running) and token_budget > 0:
@@ -183,7 +183,7 @@ class Scheduler:
                 for i in encoder_inputs_to_schedule:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
-            logger.info(encoder_inputs_to_schedule)
+            #logger.info(encoder_inputs_to_schedule)
 
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
@@ -220,7 +220,7 @@ class Scheduler:
                  new_encoder_budget) = self._try_schedule_encoder_inputs(
                      request, num_computed_tokens, num_new_tokens,
                      encoder_budget)
-                logger.info(encoder_inputs_to_schedule)
+                #logger.info(encoder_inputs_to_schedule)
                 if num_new_tokens == 0:
                     # The request cannot be scheduled.
                     break
@@ -370,7 +370,7 @@ class Scheduler:
         mm_positions = request.mm_positions
         assert mm_positions is not None
         assert len(mm_positions) > 0
-        print(f"mm_positions is  {mm_positions}")
+        #print(f"mm_positions is  {mm_positions}")
         for i, pos_info in enumerate(mm_positions):
             start_pos = pos_info["offset"]
             num_encoder_tokens = pos_info["length"]
@@ -410,8 +410,8 @@ class Scheduler:
             # verify the encoder_cache has the encoder results
             if request.request_id not in self.encoder_cache or \
             (request.request_id in self.encoder_cache and i not in self.encoder_cache[request.request_id]):
-                logger.info(f"request_id is {request.request_id} and i is {i}")
-                logger.info(f"encoder_cache is {self.encoder_cache}")
+                # logger.info(f"request_id is {request.request_id} and i is {i}")
+                # logger.info(f"encoder_cache is {self.encoder_cache}")
                 if num_computed_tokens < start_pos:
                     num_new_tokens = start_pos - num_computed_tokens
                 else:

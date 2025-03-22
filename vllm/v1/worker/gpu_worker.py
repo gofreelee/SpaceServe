@@ -245,11 +245,11 @@ class Worker:
     
     @torch.inference_mode()
     def execute_vision_encoder(self, scheduler_output: "SchedulerOutput"):
-        logger.info(f"execute_vision_encoder: {scheduler_output}")
+        #logger.info(f"execute_vision_encoder: {scheduler_output}")
         self.model_runner.update_for_encoder(scheduler_output)
         self.model_runner._execute_encoder(scheduler_output)
         encoder_cache = self.model_runner.get_encoder_cache()
-        logger.info(f"encoder_cache: {encoder_cache}")
+        #logger.info(f"encoder_cache: {encoder_cache}")
         if scheduler_output.scheduled_new_reqs == None or len(scheduler_output.scheduled_new_reqs) == 0:
             return None
         return encoder_cache
