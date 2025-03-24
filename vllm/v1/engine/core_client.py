@@ -386,10 +386,12 @@ class AsyncMPClient(MPClient):
     async def add_request_async(self, request: EngineCoreRequest) -> None:
         # NOTE: text prompt is not needed in the core engine as it has been
         # tokenized.
-        logger.info("request prompt is %s", request.prompt)
+        #logger.info("request prompt is %s", request.prompt)
         request.prompt = None
         await self._send_input_toencoder(EngineCoreRequestType.ADD, request)
+        logger.info(f"{request.prompt} complete send to encoder")
         await self._send_input(EngineCoreRequestType.ADD, request)
+        logger.info(f"{request.prompt} complete send to llmbackend")
     
     async def _send_input_toencoder(self, request_type: EngineCoreRequestType,
                           request: EngineCoreRequestUnion) -> None:

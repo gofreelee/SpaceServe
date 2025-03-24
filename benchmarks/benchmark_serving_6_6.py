@@ -34,7 +34,7 @@ import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, AsyncGenerator, Collection, Dict, List, Optional, Tuple
-
+from datasets import load_from_disk
 import numpy as np
 from backend_request_func import (ASYNC_REQUEST_FUNCS, RequestFuncInput,
                                   RequestFuncOutput)
@@ -54,7 +54,7 @@ except ImportError:
     from argparse import ArgumentParser as FlexibleArgumentParser
 
 MILLISECONDS_TO_SECONDS_CONVERSION = 1000
-
+MMMU_PATH = '/home/lizhicheng/dataset/MMMUPro'
 
 @dataclass
 class BenchmarkMetrics:
@@ -219,6 +219,8 @@ def sample_mmmu_pro_vision_requests(
             "format: 'Answer: $LETTER' (without quotes) where LETTER is one of "
             "options.")
 
+        prompt = ('<image>\nWrite a detailed description of the given image.')
+
         prompt_token_ids = tokenizer(prompt).input_ids
         if fixed_output_len is None:
             # Default max output len is set to 128
@@ -262,14 +264,19 @@ def sample_hf_requests(
     # Special case for MMMU-Pro vision dataset
     if dataset_path == 'MMMU/MMMU_Pro' and dataset_subset == 'vision':
         assert dataset_split == "test"
-        dataset = load_dataset(dataset_path,
+        if os.path.exists(MMMU_PATH):
+            dataset = load_from_disk(MMMU_PATH)
+        else:
+            dataset = load_dataset(dataset_path,
                                name=dataset_subset,
                                split=dataset_split,
-                               streaming=True)
-        assert "image" in dataset.features, (
+            )
+            #                   streaming=True)
+            assert "image" in dataset.features, (
             "MMMU/MMMU_Pro vision dataset must have 'image' column.")
+            dataset.save_to_disk(MMMU_PATH)
         filter_func = lambda x: isinstance(x["image"], Image)
-        dataset = dataset.shuffle(seed=random_seed).filter(filter_func)
+        #dataset = dataset.shuffle(seed=random_seed).filter(filter_func)
         return sample_mmmu_pro_vision_requests(dataset, num_requests,
                                                tokenizer, fixed_output_len)
 

@@ -109,8 +109,8 @@ class EncoderScheduler:
             (encoder_inputs_to_schedule,
              new_encoder_budget) = self._try_schedule_encoder_inputs(
                  request, encoder_budget)
-            logger.info(encoder_inputs_to_schedule)
-            logger.info(new_encoder_budget)
+            # logger.info(encoder_inputs_to_schedule)
+            # logger.info(new_encoder_budget)
             if not encoder_inputs_to_schedule:
                 break  # Can't schedule this request
 
@@ -119,7 +119,7 @@ class EncoderScheduler:
                 self.encoder_cache_manager.allocate(request, idx)
 
             self.waiting.popleft()
-            logger.info(f"waiting: {len(self.waiting)}")
+            #logger.info(f"waiting: {len(self.waiting)}")
             self.running.append(request)
             scheduled_encoder_inputs[request.request_id] = encoder_inputs_to_schedule
 
@@ -177,12 +177,12 @@ class EncoderScheduler:
         request: Request,
         remaining_budget: int,
     ) -> Tuple[List[int], int]:
-        logger.info(f"remain encoder bugdet: {remaining_budget}")
+        #logger.info(f"remain encoder bugdet: {remaining_budget}")
         schedulable = []
         
         # Filter inputs that need processing
-        print(request.mm_inputs)
-        print(request.mm_positions)
+        # print(request.mm_inputs)
+        # print(request.mm_positions)
         for i, item in enumerate(request.mm_positions):
             input_size = item["length"]
             if input_size <= remaining_budget:
@@ -301,8 +301,8 @@ class EncoderScheduler:
         return False
 
     def add_request(self, request: Request) -> None:
-        import traceback;traceback.print_stack()
-        logger.info(f"Adding request {request.request_id} to the encoder scheduler.")
+        #import traceback;traceback.print_stack()
+        #logger.info(f"Adding request {request.request_id} to the encoder scheduler.")
         self.waiting.append(request)
         self.requests[request.request_id] = request
 

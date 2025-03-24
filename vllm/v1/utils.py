@@ -121,6 +121,8 @@ class BackgroundProcHandle:
         if reader.recv()["status"] != "READY":
             raise RuntimeError(f"{process_name} initialization failed. "
                                "See root cause above.")
+        else:
+            logger.info(f"{process_name} is {self.proc.pid}")
 
     def shutdown(self):
         self._finalizer()

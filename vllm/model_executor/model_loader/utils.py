@@ -78,12 +78,12 @@ def get_model_architecture(
         model_config: ModelConfig) -> Tuple[Type[nn.Module], str]:
     architectures = getattr(model_config.hf_config, "architectures", [])
     only_encoder = getattr(model_config, "only_vision_encoder", False)
-    logger.info(f"only_encoder is {only_encoder}")
+    #logger.info(f"only_encoder is {only_encoder}")
     if 'Qwen2VLForConditionalGeneration' in architectures and only_encoder:
         architectures = ['Qwen2VLEncoder']
     #import traceback;traceback.print_stack()
-    logger.info(f"architectures: {architectures}")
-    logger.info(f"type : {type(architectures)}")
+    # logger.info(f"architectures: {architectures}")
+    # logger.info(f"type : {type(architectures)}")
     # Special handling for quantized Mixtral.
     # FIXME(woosuk): This is a temporary hack.
     mixtral_supported = [
@@ -102,10 +102,10 @@ def get_model_architecture(
             or model_config.model_impl == ModelImpl.TRANSFORMERS):
         architectures = resolve_transformers_fallback(model_config,
                                                       architectures)
-    logger.info(architectures)
+    #logger.info(architectures)
     model_cls, arch = ModelRegistry.resolve_model_cls(architectures)
-    logger.info(model_cls)
-    logger.info(arch)
+    # logger.info(model_cls)
+    # logger.info(arch)
     if model_config.task == "embed":
         model_cls = as_embedding_model(model_cls)
     elif model_config.task == "classify":

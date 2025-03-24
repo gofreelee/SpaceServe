@@ -34,6 +34,23 @@ from vllm.version import __version__ as VLLM_VERSION
 logger = init_logger(__name__)
 
 POLLING_TIMEOUT_S = 2.5
+# 在EngineCoreProc类中添加以下代码
+# import sys
+# _gil_tracker = {}
+
+# def gil_trace(frame, event, arg):
+#     if event == 'call' and frame.f_code.co_name == 'PyEval_RestoreThread':
+#         ident = threading.get_ident()
+#         _gil_tracker[ident] = time.monotonic()
+#     elif event == 'return' and frame.f_code.co_name == 'PyEval_SaveThread':
+#         ident = threading.get_ident()
+#         start = _gil_tracker.pop(ident, None)
+#         if start:
+#             duration = time.monotonic() - start
+#             if duration > 0.1:
+#                 print(f"Thread {ident} held GIL for {duration:.2f}s")
+
+# sys.settrace(gil_trace)
 
 
 class EngineCore:
@@ -115,7 +132,7 @@ class EngineCore:
                 request.mm_inputs, request.mm_hashes)
 
         req = Request.from_engine_core_request(request)
-        print(f"req.mm_inputs is {req.mm_inputs}")
+        #print(f"req.mm_inputs is {req.mm_inputs}")
 
         self.scheduler.add_request(req)
 
@@ -131,7 +148,7 @@ class EngineCore:
     def _handle_encoder_result(self, encoder_result):
         '''Handle encoder result from encoder process'''
         for item in encoder_result:
-            logger.info(type(item))
+            #logger.info(type(item))
             #item is dict type
             for k, v in item.items():
                 for v_k, v_v in v.items():
@@ -337,6 +354,7 @@ class EngineCoreProc(EngineCore):
                     raise ValueError(f"Unknown RequestType: {request_type}")
 
                 # Push to input queue for core busy loop.
+                logger.info(f"engine core proc seed data to input_queue")
                 self.input_queue.put_nowait(request)
 
     def process_output_socket(self, output_path: str):
@@ -421,7 +439,7 @@ class EncoderCore:
                 request.mm_inputs, request.mm_hashes)
 
         req = Request.from_engine_core_request(request)
-        print(f"req.mm_inputs is {req.mm_inputs}")
+        #print(f"req.mm_inputs is {req.mm_inputs}")
 
         self.scheduler.add_request(req)
 
@@ -558,8 +576,8 @@ class EncoderCoreProc(EncoderCore):
         """Core busy loop of the EngineCore."""
 
         # Loop until process is sent a SIGINT or SIGTERM
-        logger.info("EncoderCoreProc run_busy_loop")
-        fd = open("output.txt", "w")
+        #logger.info("EncoderCoreProc run_busy_loop")
+        #fd = open("output.txt", "w")
         while True:
             #1) Poll the input queue until there is work to do.
             if not self.scheduler.has_unfinished_requests():
@@ -578,13 +596,13 @@ class EncoderCoreProc(EncoderCore):
             # logger.info(f"self.scheduler.has_unfinished_requests() is {self.scheduler.has_unfinished_requests()}")
             # # 2) Handle any new client requests (Abort or Add).
             while not self.input_queue.empty():
-                logger.info("there is new req in encoder process")
+                #logger.info("there is new req in encoder process")
                 req = self.input_queue.get_nowait()
                 self._handle_client_request(req)
             pass
 
             # # 3) Step the engine core.
-            outputs = self.step(fd)
+            outputs = self.step()
             #logger.info(f"outputs in encodercoreproc is {outputs}")
             
             
@@ -634,7 +652,7 @@ class EncoderCoreProc(EncoderCore):
                     raise ValueError(f"Unknown RequestType: {request_type}")
 
                 # Push to input queue for core busy loop.
-                logger.info(f"encoderproc add request {request}")
+                #logger.info(f"encoderproc add request {request}")
                 self.input_queue.put_nowait(request)
 
     def process_output_socket(self, output_path: str):

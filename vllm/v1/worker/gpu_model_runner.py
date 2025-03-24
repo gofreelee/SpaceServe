@@ -686,8 +686,8 @@ class GPUModelRunner:
                 num_computed_tokens=new_req_data.num_computed_tokens,
                 output_token_ids=[],
             )
-            logger.info(f"request req_id is {req_id}")
-        logger.info(f"{scheduler_output.scheduled_new_reqs}")
+            #logger.info(f"request req_id is {req_id}")
+        #logger.info(f"{scheduler_output.scheduled_new_reqs}")
     
     def _execute_encoder(self, scheduler_output: "SchedulerOutput"):
         # for new_req_data in scheduler_output.scheduled_new_reqs:
@@ -720,14 +720,14 @@ class GPUModelRunner:
             #print("No encoder inputs to process in gpu_model_runner:648")
             return
 
-        logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
+        #logger.info(f"scheduler_encoder_inputs are {scheduled_encoder_inputs}")
         # Batch the multi-modal inputs.
         mm_inputs: List[MultiModalKwargs] = []
         req_input_ids: List[Tuple[str, int]] = []
         for req_id, encoder_input_ids in scheduled_encoder_inputs.items():
-            print(f"req_id is {req_id}, encoder_input_ids are {encoder_input_ids}")
+            #print(f"req_id is {req_id}, encoder_input_ids are {encoder_input_ids}")
             req_state = self.requests[req_id]
-            print(f"req_state is  {req_state}")
+            #print(f"req_state is  {req_state}")
             for input_id in encoder_input_ids:
                 mm_inputs.append(req_state.mm_inputs[input_id])
                 req_input_ids.append((req_id, input_id))
@@ -739,7 +739,7 @@ class GPUModelRunner:
         # in the same batch while still being able to benefit from batching
         # multimodal inputs. The proper solution should be reordering the
         # encoder outputs.
-        logger.info(f"mm_inputs are {mm_inputs}")
+        #logger.info(f"mm_inputs are {mm_inputs}")
         grouped_mm_inputs_list = group_mm_inputs_by_modality(mm_inputs)
 
         encoder_outputs = []
@@ -761,7 +761,7 @@ class GPUModelRunner:
             curr_group_outputs = self.model.get_multimodal_embeddings(
                 **batched_mm_inputs)
             e_time = time.time()
-            logger.info(f"encoderforward time is {1000 * (e_time - s_time)}, res is {curr_group_outputs}")
+            #logger.info(f"encoderforward time is {1000 * (e_time - s_time)}, res is {curr_group_outputs}")
             #logger.info(self.model.get_multimodal_embeddings)
 
             for output in curr_group_outputs:
@@ -771,8 +771,8 @@ class GPUModelRunner:
         for (req_id, input_id), output in zip(req_input_ids, encoder_outputs):
             if req_id not in self.encoder_cache:
                 self.encoder_cache[req_id] = {}
-            print(f"encoder cache is {self.encoder_cache[req_id]}")
-            print(f"type of encoder output is {type(output)}")
+            # print(f"encoder cache is {self.encoder_cache[req_id]}")
+            # print(f"type of encoder output is {type(output)}")
             self.encoder_cache[req_id][input_id] = output
 
     def get_encoder_cache(self):
@@ -833,6 +833,7 @@ class GPUModelRunner:
             # logger.info(f"scheduler_output_encoder_inputs: {scheduler_output.scheduled_encoder_inputs}")
             # logger.info(f"self.encoder_cache is  {self.encoder_cache}")
             #self._execute_encoder(scheduler_output)
+            #logger.info(f"gather in llmbackend")
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
             #logger.info(f"encoder_outputs {encoder_outputs}")
         else:
