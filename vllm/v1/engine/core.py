@@ -88,7 +88,7 @@ class EngineCore:
             lora_config=vllm_config.lora_config,
             encoder_cache = self.encoder_result_cache
         )
-
+        self.stream = torch.cuda.Stream("cuda")
 
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
@@ -185,7 +185,11 @@ class EngineCore:
                 self._handle_encoder_result(encoder_result)
         #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
-        output = self.model_executor.execute_model(scheduler_output)
+        with torch.cuda.stream(self.stream) :
+            logger.info(f"encoder cache size : {len(self.encoder_result_cache)}") 
+            output = self.model_executor.execute_model(scheduler_output)
+            #logger.info(self.stream)
+        #logger.info(f"llmbackend is working")
         engine_core_outputs = self.scheduler.update_from_output(
             scheduler_output, output)
         return engine_core_outputs
@@ -285,18 +289,25 @@ class EngineCoreProc(EngineCore):
         while True:
             # 1) Poll the input queue until there is work to do.
             if not self.scheduler.has_unfinished_requests():
-                while True:
-                    try:
-                        req = self.input_queue.get(timeout=POLLING_TIMEOUT_S)
-                        self._handle_client_request(req)
-                        break
-                    except queue.Empty:
-                        logger.debug("EngineCore busy loop waiting.")
-                        # Break out the loop so we can log_stats in step().
-                        if self.log_stats:
-                            break
-                    except BaseException:
-                        raise
+                try:
+                    while self.input_queue.empty():
+                        pass
+                    req = self.input_queue.get_nowait()
+                    self._handle_client_request(req)
+                except BaseException:
+                    raise
+                # while True:
+                #     try:
+                #         req = self.input_queue.get(timeout=POLLING_TIMEOUT_S)
+                #         self._handle_client_request(req)
+                #         break
+                #     except queue.Empty:
+                #         logger.debug("EngineCore busy loop waiting.")
+                #         # Break out the loop so we can log_stats in step().
+                #         if self.log_stats:
+                #             break
+                #     except BaseException:
+                #         raise
 
             # 2) Handle any new client requests (Abort or Add).
             while not self.input_queue.empty():
@@ -370,6 +381,7 @@ class EngineCoreProc(EngineCore):
                 outputs = self.output_queue.get()
                 encoder.encode_into(outputs, buffer)
                 socket.send_multipart((buffer, ), copy=False)
+                #logger.info("prcess_output")
 
     # add by lzc
     # def process_encoder_results(self):
@@ -424,6 +436,8 @@ class EncoderCore:
         print(f"self.encoder_result_queue is {self.encoder_result_queue}")
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
+        
+        self.encoder_stream = torch.cuda.Stream("cuda")
 
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
@@ -463,11 +477,12 @@ class EncoderCore:
         # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
         # muxserver
         scheduler_output = self.scheduler.schedule()
-        
         #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
         output = None
         if scheduler_output.scheduled_new_reqs != None and len(scheduler_output.scheduled_new_reqs) > 0:
-            output =  self.model_executor.execute_vision_encoder(scheduler_output)    
+            with torch.cuda.stream(self.encoder_stream):
+                logger.info(f"encoder scheduler result: new req : {len(scheduler_output.scheduled_new_reqs)}")
+                output =  self.model_executor.execute_vision_encoder(scheduler_output)    
             #then i should send the output to the client
             #logger.info(f"encoder queue add {output}")
             import time;s_time = time.time()
@@ -525,9 +540,9 @@ class EncoderCoreProc(EncoderCore):
         threading.Thread(target=self.process_input_socket,
                          args=(input_path, ),
                          daemon=True).start()
-        threading.Thread(target=self.process_output_socket,
-                         args=(output_path, ),
-                         daemon=True).start()
+        # threading.Thread(target=self.process_output_socket,
+        #                  args=(output_path, ),
+        #                  daemon=True).start()
 
         # Send Readiness signal to EngineClient.
         ready_pipe.send({"status": "READY"})

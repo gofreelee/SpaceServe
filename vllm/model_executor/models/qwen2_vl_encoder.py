@@ -1270,7 +1270,8 @@ class Qwen2VLEncoder(nn.Module, SupportsMultiModal,
     def warm_model(self):
         pixel = torch.rand(6048, 1176, device = 'cuda')
         grid = torch.tensor([[1, 84, 72]], device='cuda')
-        self.visual(pixel, grid_thw = grid)
+        res = self.visual(pixel, grid_thw = grid)
+        logger.info(res.device)
     # def get_input_embeddings(
     #     self,
     #     input_ids: torch.Tensor,

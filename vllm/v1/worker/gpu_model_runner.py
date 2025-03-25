@@ -131,6 +131,7 @@ class GPUModelRunner:
         self.use_cuda_graph = (self.vllm_config.compilation_config.level
                                == CompilationLevel.PIECEWISE
                                and not self.model_config.enforce_eager)
+        #self.use_cuda_graph = False
         # TODO(woosuk): Provide an option to tune the max cudagraph batch size.
         # The convention is different.
         # self.cudagraph_batch_sizes sorts in ascending order.
