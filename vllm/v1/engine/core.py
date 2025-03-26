@@ -157,11 +157,7 @@ class EngineCore:
                         self.encoder_result_cache[k][v_k] = v_v
                     else:
                         self.encoder_result_cache[k] = {v_k: v_v}
-        logger.info(f"before encoder cache size is {len(self.encoder_result_cache)}")
-        logger.info(self.encoder_result_cache)
-        logger.info(f"add to encoder cache {k}")
-        logger.info(f"after encoder cache size is {len(self.encoder_result_cache)}")
-        logger.info(self.encoder_result_cache)
+
 
 
     def step(self) -> EngineCoreOutputs:
@@ -183,7 +179,7 @@ class EngineCore:
         # except queue.Empty:
         #     encoder_result_from_encoder_proc = None
         scheduler_output = self.scheduler.schedule()
-        logger.info(f"scheduler output {scheduler_output}")
+        
         while scheduler_output.total_num_scheduled_tokens == 0:
             scheduler_output = self.scheduler.schedule()
             #logger.info("in EngineCore step, scheduler_output is 0")

@@ -113,8 +113,10 @@ class GPUModelRunner:
         #self.encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
         if encoder_cache != None:
             self.encoder_cache = encoder_cache
+            logger.info(f"engine process, encoder cache id : {id(self.encoder_cache)}")
         else:
             self.encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
+            logger.info(f"encoder process, encoder cache id : {id(self.encoder_cache)}")
         # Request states.
         self.requests: Dict[str, CachedRequestState] = {}
         #self.encoder_requests: Dict[str, CachedRequestState] = {}
@@ -772,16 +774,23 @@ class GPUModelRunner:
             for output in curr_group_outputs:
                 encoder_outputs.append(output)
 
+        encoder_cache: Dict[str, Dict[int, torch.Tensor]] = {}
         # Cache the encoder outputs.
         for (req_id, input_id), output in zip(req_input_ids, encoder_outputs):
             if req_id not in self.encoder_cache:
-                self.encoder_cache[req_id] = {}
+                encoder_cache[req_id] = {}
             # print(f"encoder cache is {self.encoder_cache[req_id]}")
             # print(f"type of encoder output is {type(output)}")
-            self.encoder_cache[req_id][input_id] = output
+            encoder_cache[req_id][input_id] = output
+        
+        return encoder_cache
 
     def get_encoder_cache(self):
         return self.encoder_cache
+    
+    # encoder process will use this 
+    def clear_encoder_cache(self):
+        self.encoder_cache.clear()
 
     def _gather_encoder_outputs(
         self,
