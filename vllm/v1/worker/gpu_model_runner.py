@@ -226,8 +226,12 @@ class GPUModelRunner:
         """
         # Remove finished requests from the cached states.
         for req_id in scheduler_output.finished_req_ids:
+            logger.info(f"finished req is {req_id}")
             self.requests.pop(req_id, None)
             self.encoder_cache.pop(req_id, None)
+            logger.info(f"in engineview encoder cache size is {len(self.encoder_cache)}")
+            # for k, v in self.encoder_cache.items():
+            #     logger.info(k)
         # Remove the finished requests from the persistent batch.
         # NOTE(woosuk): There could be an edge case where finished_req_ids and
         # scheduled_req_ids overlap. This happens when a request is aborted and

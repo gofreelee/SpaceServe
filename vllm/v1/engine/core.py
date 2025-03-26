@@ -151,11 +151,17 @@ class EngineCore:
             #logger.info(type(item))
             #item is dict type
             for k, v in item.items():
+                
                 for v_k, v_v in v.items():
                     if k in self.encoder_result_cache:
                         self.encoder_result_cache[k][v_k] = v_v
                     else:
                         self.encoder_result_cache[k] = {v_k: v_v}
+        logger.info(f"before encoder cache size is {len(self.encoder_result_cache)}")
+        logger.info(self.encoder_result_cache)
+        logger.info(f"add to encoder cache {k}")
+        logger.info(f"after encoder cache size is {len(self.encoder_result_cache)}")
+        logger.info(self.encoder_result_cache)
 
 
     def step(self) -> EngineCoreOutputs:
@@ -177,6 +183,7 @@ class EngineCore:
         # except queue.Empty:
         #     encoder_result_from_encoder_proc = None
         scheduler_output = self.scheduler.schedule()
+        logger.info(f"scheduler output {scheduler_output}")
         while scheduler_output.total_num_scheduled_tokens == 0:
             scheduler_output = self.scheduler.schedule()
             #logger.info("in EngineCore step, scheduler_output is 0")
@@ -186,7 +193,6 @@ class EngineCore:
         #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
         with torch.cuda.stream(self.stream) :
-            logger.info(f"encoder cache size : {len(self.encoder_result_cache)}") 
             output = self.model_executor.execute_model(scheduler_output)
             #logger.info(self.stream)
         #logger.info(f"llmbackend is working")
@@ -485,10 +491,10 @@ class EncoderCore:
                 output =  self.model_executor.execute_vision_encoder(scheduler_output)    
             #then i should send the output to the client
             #logger.info(f"encoder queue add {output}")
-            import time;s_time = time.time()
+            #import time;s_time = time.time()
             self.encoder_result_queue.put(output)
-            e_time = time.time()
-            logger.info(f"add time is {1000 * (e_time - s_time)}")
+            # e_time = time.time()
+            # logger.info(f"add time is {1000 * (e_time - s_time)}")
         # executor to run_encoder
         #logger.info(f"in encoder proc is {output}")
         # original_stdout = sys.stdout

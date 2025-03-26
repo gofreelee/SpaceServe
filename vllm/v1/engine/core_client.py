@@ -176,7 +176,7 @@ class MPClient(EngineCoreClient):
         # else the gc cannot collect the object.
         self._finalizer = weakref.finalize(self, lambda x: x.destroy(linger=0),
                                            self.ctx)
-        encoder_result_queue = mp.Queue(maxsize=10)
+        encoder_result_queue = mp.Queue(maxsize=5)
         # Paths and sockets for IPC.
         output_path = get_open_zmq_ipc_path()
         input_path = get_open_zmq_ipc_path()

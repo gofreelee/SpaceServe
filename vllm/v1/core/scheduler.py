@@ -120,6 +120,9 @@ class Scheduler:
         #logger.info(f"encoder_cache in scheduler {self.encoder_cache}")
         # First, schedule the RUNNING requests.
         req_index = 0
+        #token_budget = 4096
+        logger.info(f"token budget is {token_budget}")
+
         while req_index < len(self.running) and token_budget > 0:
             request = self.running[req_index]
             num_new_tokens = request.num_tokens - request.num_computed_tokens
@@ -184,7 +187,7 @@ class Scheduler:
                     self.encoder_cache_manager.allocate(request, i)
                 encoder_budget = new_encoder_budget
             #logger.info(encoder_inputs_to_schedule)
-
+        logger.info(f"scheduled running reqs {len(scheduled_running_reqs)}")
         # Next, schedule the WAITING requests.
         if not preempted_reqs:
             #import traceback;traceback.print_stack()
