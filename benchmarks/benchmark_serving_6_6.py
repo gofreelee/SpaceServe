@@ -219,7 +219,7 @@ def sample_mmmu_pro_vision_requests(
             "format: 'Answer: $LETTER' (without quotes) where LETTER is one of "
             "options.")
 
-        prompt = ('<image>\nWrite a detailed description of the given image.')
+        prompt = ('write a detailed description of the given image.')
 
         prompt_token_ids = tokenizer(prompt).input_ids
         if fixed_output_len is None:

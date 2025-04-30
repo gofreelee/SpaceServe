@@ -344,6 +344,12 @@ def check_enough_kv_cache_memory(vllm_config: VllmConfig,
                          "initializing the engine.")
 
     max_model_len = vllm_config.model_config.max_model_len
+    # maybe be wrong
+    if max_model_len > 4096:
+        max_model_len = 4096
+
+    logger.info(
+        "The model's max_model_len is %d, and the available memory for ")
     needed_memory = 0
     for layer_spec in kv_cache_spec.values():
         needed_memory += layer_spec.bytes_for_tokens(max_model_len)

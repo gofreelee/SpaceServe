@@ -29,6 +29,7 @@ from vllm.v1.engine.mm_input_mapper import MMInputMapperServer
 from vllm.v1.executor.abstract import Executor
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.serial_utils import PickleEncoder
+from vllm.v1.smcontroller import * 
 from vllm.version import __version__ as VLLM_VERSION
 
 logger = init_logger(__name__)
@@ -89,6 +90,10 @@ class EngineCore:
             encoder_cache = self.encoder_result_cache
         )
         self.stream = torch.cuda.Stream("cuda")
+
+        # stream_mask = [0xffffffff, 0x0, 0x000, 0x00]
+        # #set_stream_mask(self.encoder_stream, -1024)
+        # stream_lzc_mask(self.stream, stream_mask)
 
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
@@ -219,6 +224,7 @@ class EngineCoreProc(EngineCore):
         log_stats: bool = False,
         encoder_result_queue = None,
     ):
+        logger.info(vllm_config.model_config)
         super().__init__(vllm_config, executor_class, encoder_result_queue)
 
         self.log_stats = log_stats
@@ -410,7 +416,7 @@ class EncoderCore:
         encoder_result_queue = None
     ):
         assert vllm_config.model_config.runner_type != "pooling"
-
+        from vllm.v1.smcontroller import stream_lzc_mask
         logger.info("Initializing a V1 LLM encoder engine (v%s) with config: %s",
                     VLLM_VERSION, vllm_config)
 
@@ -440,7 +446,9 @@ class EncoderCore:
             vllm_config.model_config)
         
         self.encoder_stream = torch.cuda.Stream("cuda")
-
+        encoder_mask = [0x000, 0x000, 0x000, 0xff8]
+        #set_stream_mask(self.encoder_stream, -1024)
+        stream_lzc_mask(self.encoder_stream, encoder_mask)
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
 
