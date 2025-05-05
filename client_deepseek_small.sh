@@ -1,9 +1,9 @@
 python benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model llava-hf/llava-onevision-qwen2-7b-ov-hf \
+        --model deepseek-ai/deepseek-vl2-small \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
-        --request-rate 1 \
+        --request-rate 10 \
         --num-prompts 100 \
         --hf-split test \
         --endpoint /chat/completions \

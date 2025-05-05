@@ -410,6 +410,8 @@ class WorkerProc:
             method, args, kwargs = self.rpc_broadcast_mq.dequeue()
             e_time = time.time()
             logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
+            if (1000 * (e_time - s_time)) > 1000:
+                logger.info(f"slow dequeu, args is {args}, kwargs is {kwargs}")
             # logger.info(f"encoder result queue in worker is {id(self.encoder_result_queue)}")
             #logger.info(f"WorkerProc got method {method} with args {args} and kwargs {kwargs}")
             # you need to transfer the encoder cache to the worker cross GPU,  noted by lizhicheng

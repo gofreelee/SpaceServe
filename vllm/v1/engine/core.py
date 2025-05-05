@@ -455,8 +455,8 @@ class EncoderCore:
             vllm_config.model_config)
         
         self.encoder_stream = torch.cuda.Stream("cuda")
-        #encoder_mask = [0x000, 0x000, 0x000, 0xff8]
-        #stream_lzc_mask(self.encoder_stream, encoder_mask)
+        encoder_mask = [0x000, 0x000, 0x000, 0xfff]
+        stream_lzc_mask(self.encoder_stream, encoder_mask)
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
 
@@ -498,13 +498,13 @@ class EncoderCore:
         #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
         output = None
         if scheduler_output.scheduled_new_reqs != None and len(scheduler_output.scheduled_new_reqs) > 0:
-            # with torch.cuda.stream(self.encoder_stream):
+             with torch.cuda.stream(self.encoder_stream):
             #     logger.info(f"encoder scheduler result: new req : {len(scheduler_output.scheduled_new_reqs)}")
-            output =  self.model_executor.execute_vision_encoder(scheduler_output)    
+                output =  self.model_executor.execute_vision_encoder(scheduler_output)    
             #then i should send the output to the client
             #logger.info(f"encoder queue add {output}")
             #import time;s_time = time.time()
-            self.encoder_result_queue.put(output)
+                self.encoder_result_queue.put(output)
             # e_time = time.time()
             # logger.info(f"add time is {1000 * (e_time - s_time)}")
         # executor to run_encoder
