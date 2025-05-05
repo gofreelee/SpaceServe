@@ -59,6 +59,9 @@ class WorkerBase(ABC):
         memory allocations.
         """
         raise NotImplementedError
+    
+    def add_encoder_cache_to_modelrunner(self, encoder_cache):
+        logger.info("add_encoder_cache_to_modelrunner")
 
     @abstractmethod
     def determine_num_available_blocks(self) -> Tuple[int, int]:

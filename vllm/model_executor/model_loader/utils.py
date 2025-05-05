@@ -81,6 +81,8 @@ def get_model_architecture(
     #logger.info(f"only_encoder is {only_encoder}")
     if 'Qwen2VLForConditionalGeneration' in architectures and only_encoder:
         architectures = ['Qwen2VLEncoder']
+    elif 'LlavaNextForConditionalGeneration' in architectures and only_encoder:
+        architectures = ['LlavaNextEncoder']
     #import traceback;traceback.print_stack()
     # logger.info(f"architectures: {architectures}")
     # logger.info(f"type : {type(architectures)}")

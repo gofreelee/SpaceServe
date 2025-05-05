@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from functools import partial
 from multiprocessing.process import BaseProcess
+import torch.multiprocessing as mp
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import cloudpickle
@@ -37,9 +38,13 @@ POLLING_TIMEOUT_S = POLLING_TIMEOUT_MS // 1000
 
 class MultiprocExecutor(Executor):
 
-    def _init_executor(self) -> None:
+    def _init_executor(self, encoder_cache = None) -> None:
         # Call self.shutdown at exit to clean up
         # and ensure workers will be terminated.
+        logger.info(f"in multiproc executor encoder_cache is {encoder_cache}, id is {id(encoder_cache)}")
+        self.shutting_down = False
+        self.encoder_cache = encoder_cache
+        self.encoder_req_ids = []
         self._finalizer = weakref.finalize(self, self.shutdown)
 
         # The child processes will send SIGUSR1 when unrecoverable
@@ -78,18 +83,46 @@ class MultiprocExecutor(Executor):
 
         # Create workers
         self.workers: List[WorkerProcHandle] = []
+        self.workers_encoder_results_queue = []
         for rank in range(self.world_size):
+            self.workers_encoder_results_queue.append(mp.Queue(10))
             worker = WorkerProc.make_worker_process(self.vllm_config, rank,
                                                     rank,
                                                     distributed_init_method,
-                                                    scheduler_output_handle)
+                                                    scheduler_output_handle,
+                                                    self.workers_encoder_results_queue[-1],)
             self.workers.append(worker)
 
         # Ensure message queues are ready. Will deadlock if re-ordered
         # Must be kept consistent with the WorkerProc
+        #logger.info(f"encoder cache  is {self.encoder_cache}, id is  {id(self.encoder_cache)}")
         self.rpc_broadcast_mq.wait_until_ready()
         for w in self.workers:
             w.worker_response_mq.wait_until_ready()
+
+
+    def dispatch_encoder_result_to_workers(self, encoder_result):
+        s_time = time.time()
+        for encoder_res_item in encoder_result:
+            for req_id in encoder_res_item.keys():
+                for mm_key in encoder_res_item[req_id].keys():
+                    if encoder_res_item[req_id][mm_key] is not None:
+                        encoder_res_item[req_id][mm_key] = encoder_res_item[req_id][mm_key].cpu()
+                logger.info(f"req id's mm done {req_id}")
+                self.encoder_req_ids.append(req_id)
+
+
+        for encoder_result_queue in self.workers_encoder_results_queue:
+            #logger.info(f"put the result {encoder_result}")
+            encoder_result_queue.put(encoder_result)
+
+            while encoder_result_queue.empty():
+                continue
+
+            logger.info(f"queue size {encoder_result_queue.qsize()}")
+            #logger.info(f"dispatch to queue : id is {id(encoder_result_queue)}, ifempty is {encoder_result_queue.empty()}")
+        e_time = time.time()
+        #logger.info(f"dispatch encoder result to workers time is {1000 * (e_time - s_time)} ms")
 
     def collective_rpc(self,
                        method: Union[str, Callable],
@@ -98,7 +131,10 @@ class MultiprocExecutor(Executor):
                        kwargs: Optional[Dict] = None) -> List[Any]:
         start_time = time.monotonic()
         kwargs = kwargs or {}
-
+        # logger.info(f"collective rpc method is {method}")
+        # logger.info(f"in multiproc executor collective rpc is {self.encoder_cache}, id is {id(self.encoder_cache)}")
+        if method == "execute_model":
+            kwargs["encoder_req"] = self.encoder_req_ids
         # NOTE: If the args are heterogeneous, then we pack them into a list,
         # and unpack them in the method of every worker, because every worker
         # knows their own rank.
@@ -125,12 +161,15 @@ class MultiprocExecutor(Executor):
 
                 responses[w.rank] = result
 
+            if method == "execute_model":
+                self.encoder_req_ids = []
             return responses
         except TimeoutError as e:
             raise TimeoutError(f"RPC call to {method} timed out.") from e
         except Exception as e:
             # Re-raise any other exceptions
             raise e
+        
 
     def _ensure_worker_termination(self):
         """Ensure that all worker processes are terminated. Assumes workers have
@@ -204,6 +243,7 @@ class WorkerProc:
         distributed_init_method: str,
         input_shm_handle: Handle,
         ready_path: str,
+        encoder_result_queue: Optional[mp.Queue] = None,
     ):
         self.rank = rank
         wrapper = WorkerWrapperBase(vllm_config=vllm_config, rpc_rank=rank)
@@ -219,7 +259,7 @@ class WorkerProc:
         }
         wrapper.init_worker(all_kwargs)
         self.worker = wrapper.worker
-
+        self.rank  = rank
         pid = os.getpid()
         _add_prefix(sys.stdout, f"VllmWorker rank={rank}", pid)
         _add_prefix(sys.stderr, f"VllmWorker rank={rank}", pid)
@@ -239,8 +279,12 @@ class WorkerProc:
             ready_socket.send_string(WorkerProc.READY_STR)
             ready_socket.send(payload)
 
+        self.encoder_cache = {}
+        self.encoder_result_queue = encoder_result_queue
+    
         self.worker.init_device()
         self.worker.load_model()
+        self.worker.add_encoder_cache_to_modelrunner(self.encoder_cache)     
 
     @staticmethod
     def make_worker_process(
@@ -249,6 +293,7 @@ class WorkerProc:
             rank: int,
             distributed_init_method: str,
             input_shm_handle,  # Receive SchedulerOutput
+            encoder_result_queue = None,  # Send ModelRunnerOutput
     ) -> WorkerProcHandle:
         context = get_mp_context()
 
@@ -263,6 +308,7 @@ class WorkerProc:
             "distributed_init_method": distributed_init_method,
             "input_shm_handle": input_shm_handle,
             "ready_path": ready_path,
+            "encoder_result_queue": encoder_result_queue,
         }
         # Run EngineCore busy loop in background process.
         proc = context.Process(target=WorkerProc.worker_main,
@@ -360,8 +406,102 @@ class WorkerProc:
     def worker_busy_loop(self):
         """Main busy loop for Multiprocessing Workers"""
         while True:
+            s_time = time.time()
             method, args, kwargs = self.rpc_broadcast_mq.dequeue()
+            e_time = time.time()
+            logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
+            # logger.info(f"encoder result queue in worker is {id(self.encoder_result_queue)}")
+            #logger.info(f"WorkerProc got method {method} with args {args} and kwargs {kwargs}")
+            # you need to transfer the encoder cache to the worker cross GPU,  noted by lizhicheng
+            # req_id_scheduled = []
+            # if method == "execute_model":  
+            #     logger.info(f"args type is {type(args)}")
+            #     for arg in args:
+            #         logger.info(f"arg type is {type(arg)}")
+            #         logger.info(f"{arg.scheduled_new_reqs}")
+            #         for req in arg.scheduled_new_reqs:
+            #             logger.info(f"req is {req}")
+            #             req_id_scheduled.append(req.req_id)
+                
+            #     logger.info(f"req_id_scheduled is {req_id_scheduled}")
+            #     for req_id in req_id_scheduled:
+            #         if req_id not in self.encoder_cache.keys():
+            #             #todo 
+            #             while req_id not in self.encoder_cache.keys():
+            #                 logger.info(f"worker's encoderqueue is {id(self.encoder_result_queue)}")
+            #                 while self.encoder_result_queue is not None and self.encoder_result_queue.empty():
+            #                     continue
+            #                 encoder_result = self.encoder_result_queue.get_nowait()
+            #                 logger.info(f"worker get encoder result is {encoder_result}")
+            #                 for encoder_item in encoder_result:
+            #                     for req_id in encoder_item.keys():
+            #                         if req_id in self.encoder_cache.keys():
+            #                             continue
+            #                         self.encoder_cache[req_id] = {}
+            #                         for mm_key in encoder_item[req_id].keys():
+            #                             self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
 
+            #add to then worker encoder cache
+            if method == "execute_model":
+                #logger.info(f"encoder result queue id is {id(self.encoder_result_queue)}")
+                while self.encoder_result_queue is not None and not self.encoder_result_queue.empty():
+                    s_time = time.time()
+                    encoder_result = self.encoder_result_queue.get_nowait()
+                    #logger.info(f"worker get encoder result is {encoder_result}, encoder result queue ifempty is {self.encoder_result_queue.empty()}")  
+                    for encoder_item in encoder_result:
+                        for req_id in encoder_item.keys():
+                            if req_id in self.encoder_cache.keys():
+                                continue
+                            logger.info(f"worker doing req id is {req_id}")
+                            self.encoder_cache[req_id] = {}
+                            for mm_key in encoder_item[req_id].keys():
+                                self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
+
+                                #tmp = encoder_item[req_id][mm_key].cuda(self.rank)
+                    e_time = time.time() 
+                
+                if kwargs is not None and 'encoder_req' in kwargs.keys(): 
+                    req_ids = kwargs['encoder_req']
+                    for req_id in req_ids:
+                        if req_id in self.encoder_cache.keys():
+                            continue
+                        while self.encoder_result_queue is not None and self.encoder_result_queue.empty():
+                            continue
+
+                        encoder_result = self.encoder_result_queue.get_nowait()
+                        for encoder_item in encoder_result:
+                            for req_id in encoder_item.keys():
+                                if req_id in self.encoder_cache.keys():
+                                    continue
+                                self.encoder_cache[req_id] = {}
+                                for mm_key in encoder_item[req_id].keys():
+                                    self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
+
+                    kwargs.pop('encoder_req')
+                    #logger.info(f"worker get encoder result time is {1000 * (e_time - s_time)} ms") 
+                    
+                # for req_id in kwargs['encoder_cache'].keys(): 
+                #     #logger.info(f"current gpu is {self.rank}, the encoder cache in {kwargs['encoder_cache'][req_id]}")
+                #     if req_id in self.encoder_cache.keys():
+                #         continue
+                #     self.encoder_cache[req_id] = kwargs['encoder_cache'][req_id]
+                #     for mm_item in self.encoder_cache[req_id].keys():
+                #         s_time = time.time() 
+                #         self.encoder_cache[req_id][mm_item] = self.encoder_cache[req_id][mm_item].cuda(self.rank)
+                #         e_time = time.time()
+                #         logger.info(f"encoder cache transfer time is {1000 * (e_time - s_time)} ms")
+                
+                #kwargs.pop('encoder_cache') 
+                # if req_id in kwargs['encoder_cache'].keys():
+                #     if req_id not in self.encoder_cache.keys(): 
+                #         self.encoder_cache[req_id] = kwargs['encoder_cache'][req_id]
+
+            # logger.info(f"worker encoder cache  is {self.encoder_cache}")
+            # logger.info(f"kwargs is {kwargs}")  
+
+            
+            # if 'encoder_cache' in kwargs.keys():
+            #     encoder_cache = kwargs.pop('encoder_cache')
             try:
                 if isinstance(method, str):
                     func = getattr(self.worker, method)

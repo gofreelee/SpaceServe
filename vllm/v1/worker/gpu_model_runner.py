@@ -48,6 +48,8 @@ class GPUModelRunner:
         device: torch.device,
         encoder_cache = None
     ):
+        logger.info("Initializing GPUModelRunner")
+        import traceback;traceback.print_stack()
         print(f"vllm_config: {vllm_config}")
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
@@ -668,6 +670,7 @@ class GPUModelRunner:
         model = self.model
         #logger.info(type(model))
         model.warm_model()
+    
 
 
     #add by lizhicheng
@@ -788,6 +791,10 @@ class GPUModelRunner:
     def get_encoder_cache(self):
         return self.encoder_cache
     
+    def reset_encoder_cache(self, encoder_cache):
+        self.encoder_cache.clear()
+        self.encoder_cache = encoder_cache
+    
     # encoder process will use this 
     def clear_encoder_cache(self):
         self.encoder_cache.clear()
@@ -826,6 +833,8 @@ class GPUModelRunner:
                     num_computed_tokens - start_pos + num_scheduled_tokens,
                     num_encoder_tokens)
                 assert start_idx < end_idx
+                if req_id not in self.encoder_cache:
+                    logger.info(f"error req : {req_id}")
                 assert req_id in self.encoder_cache
                 assert i in self.encoder_cache[req_id]
                 encoder_output = self.encoder_cache[req_id][i]
@@ -848,6 +857,7 @@ class GPUModelRunner:
             # logger.info(f"self.encoder_cache is  {self.encoder_cache}")
             #self._execute_encoder(scheduler_output)
             #logger.info(f"gather in llmbackend")
+            #logger.info(f"scheduler is {scheduler_output}")
             encoder_outputs = self._gather_encoder_outputs(scheduler_output)
             #logger.info(f"encoder_outputs {encoder_outputs}")
         else:

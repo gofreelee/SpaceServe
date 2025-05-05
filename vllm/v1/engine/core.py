@@ -73,6 +73,7 @@ class EngineCore:
         logger.info(executor_class)
         self.encoder_result_cache = {}
         self.encoder_result_queue = encoder_result_queue
+        logger.info(f"in engine core, encoder_result_cache is {self.encoder_result_cache}, id is {id(self.encoder_result_cache)}")
         self.model_executor = executor_class(vllm_config, self.encoder_result_cache)
         logger.info(type(self.model_executor))
         # Setup KV Caches and update CacheConfig after profiling.
@@ -191,10 +192,16 @@ class EngineCore:
             if not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
+                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+
         #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
-        with torch.cuda.stream(self.stream) :
-            output = self.model_executor.execute_model(scheduler_output)
+        #logger.info(f"encoder result cache is {self.encoder_result_cache}, id : {id(self.encoder_result_cache)}")
+        #with torch.cuda.stream(self.stream) :
+        s_time = time.time()
+        output = self.model_executor.execute_model(scheduler_output)
+        e_time = time.time()
+        logger.info(f"execute_model time is {1000 * (e_time - s_time)} ms")
             #logger.info(self.stream)
         #logger.info(f"llmbackend is working")
         engine_core_outputs = self.scheduler.update_from_output(
@@ -325,6 +332,8 @@ class EngineCoreProc(EngineCore):
             while not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
+                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                
 
             # 3) Step the engine core.
             outputs = self.step()
@@ -446,9 +455,8 @@ class EncoderCore:
             vllm_config.model_config)
         
         self.encoder_stream = torch.cuda.Stream("cuda")
-        encoder_mask = [0x000, 0x000, 0x000, 0xff8]
-        #set_stream_mask(self.encoder_stream, -1024)
-        stream_lzc_mask(self.encoder_stream, encoder_mask)
+        #encoder_mask = [0x000, 0x000, 0x000, 0xff8]
+        #stream_lzc_mask(self.encoder_stream, encoder_mask)
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
 
@@ -490,9 +498,9 @@ class EncoderCore:
         #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
         output = None
         if scheduler_output.scheduled_new_reqs != None and len(scheduler_output.scheduled_new_reqs) > 0:
-            with torch.cuda.stream(self.encoder_stream):
-                logger.info(f"encoder scheduler result: new req : {len(scheduler_output.scheduled_new_reqs)}")
-                output =  self.model_executor.execute_vision_encoder(scheduler_output)    
+            # with torch.cuda.stream(self.encoder_stream):
+            #     logger.info(f"encoder scheduler result: new req : {len(scheduler_output.scheduled_new_reqs)}")
+            output =  self.model_executor.execute_vision_encoder(scheduler_output)    
             #then i should send the output to the client
             #logger.info(f"encoder queue add {output}")
             #import time;s_time = time.time()

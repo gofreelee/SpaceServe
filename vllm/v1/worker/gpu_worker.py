@@ -201,6 +201,9 @@ class Worker:
     def warm_model(self):
         # add by lizhicheng, I add the function for warm up the encoder model e.g. qwen2_vl encoder
         self.model_runner.warm_model()
+    
+    def add_encoder_cache_to_modelrunner(self, encoder_cache):
+        self.model_runner.reset_encoder_cache(encoder_cache)
 
     def initialize_cache(self, kv_cache_config: KVCacheConfig) -> None:
         """Allocate GPU KV cache with the specified kv_cache_config."""
@@ -240,8 +243,22 @@ class Worker:
         self,
         scheduler_output: "SchedulerOutput",
     ) -> Optional[ModelRunnerOutput]:
+        #logger.info(self.model_runner)
         output = self.model_runner.execute_model(scheduler_output)
         return output if self.rank == 0 else None
+
+    # @torch.inference_mode()
+    # def execute_model(
+    #     self,
+    #     scheduler_output: "SchedulerOutput",
+    #     encoder_cache,
+    # ) -> Optional[ModelRunnerOutput]:
+    #     logger.info(self.model_runner)
+    #     self.model_runner.reset_encoder_cache(encoder_cache)
+    #     output = self.model_runner.execute_model(scheduler_output)
+    #     return output if self.rank == 0 else None
+    
+   
     
     @torch.inference_mode()
     def execute_vision_encoder(self, scheduler_output: "SchedulerOutput"):
