@@ -230,10 +230,10 @@ class GPUModelRunner:
         """
         # Remove finished requests from the cached states.
         for req_id in scheduler_output.finished_req_ids:
-            logger.info(f"finished req is {req_id}")
+            #logger.info(f"finished req is {req_id}")
             self.requests.pop(req_id, None)
             self.encoder_cache.pop(req_id, None)
-            logger.info(f"in engineview encoder cache size is {len(self.encoder_cache)}")
+            #logger.info(f"in engineview encoder cache size is {len(self.encoder_cache)}")
             # for k, v in self.encoder_cache.items():
             #     logger.info(k)
         # Remove the finished requests from the persistent batch.
@@ -312,7 +312,8 @@ class GPUModelRunner:
                     if mm_input.get("second_per_grid_ts") is not None:
                         second_per_grid_ts.extend(
                             mm_input["second_per_grid_ts"])
-
+                if len(second_per_grid_ts) == 0:
+                    second_per_grid_ts = None
                 hf_config = self.model_config.hf_config
 
                 self.requests[req_id].mrope_positions, \
@@ -1130,6 +1131,7 @@ class GPUModelRunner:
             self.encoder_cache["tmp"] = dict(enumerate(dummy_encoder_outputs))
 
         # Trigger compilation for general shape.
+        logger.info(dummy_kv_caches)
         hidden_states = self._dummy_run(self.max_num_tokens, dummy_kv_caches)
         logits = self.model.compute_logits(hidden_states, None)
         logits = logits[:self.max_num_tokens]

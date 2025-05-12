@@ -106,13 +106,13 @@ class VllmModelForTextGeneration(VllmModel[T], Protocol[T]):
         """Return `None` if TP rank > 0."""
         ...
 
-    def sample(
-        self,
-        logits: T,
-        sampling_metadata: "SamplingMetadata",
-    ) -> "SamplerOutput":
-        """Only called on TP rank 0."""
-        ...
+    # def sample(
+    #     self,
+    #     logits: T,
+    #     sampling_metadata: "SamplingMetadata",
+    # ) -> "SamplerOutput":
+    #     """Only called on TP rank 0."""
+    #     ...
 
 
 @overload
@@ -131,12 +131,12 @@ def is_text_generation_model(
     model: Union[Type[object], object],
 ) -> Union[TypeIs[Type[VllmModelForTextGeneration]],
            TypeIs[VllmModelForTextGeneration]]:
+    print("during is_text_generation_model")
     if not is_vllm_model(model):
         return False
 
     if isinstance(model, type):
         return isinstance(model, VllmModelForTextGeneration)
-
     return isinstance(model, VllmModelForTextGeneration)
 
 

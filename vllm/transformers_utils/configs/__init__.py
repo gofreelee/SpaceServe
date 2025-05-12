@@ -23,6 +23,8 @@ from vllm.transformers_utils.configs.olmo2 import Olmo2Config
 from vllm.transformers_utils.configs.solar import SolarConfig
 from vllm.transformers_utils.configs.telechat2 import Telechat2Config
 from vllm.transformers_utils.configs.ultravox import UltravoxConfig
+from vllm.transformers_utils.configs.moonvit import MoonViTConfig
+from vllm.transformers_utils.configs.kimi_vl import KimiVLConfig
 
 __all__ = [
     "ChatGLMConfig",
@@ -45,4 +47,6 @@ __all__ = [
     "SolarConfig",
     "Telechat2Config",
     "UltravoxConfig",
+    "MoonViTConfig",
+    "KimiVLConfig",
 ]

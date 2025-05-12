@@ -119,7 +119,6 @@ class MultiprocExecutor(Executor):
             while encoder_result_queue.empty():
                 continue
 
-            logger.info(f"queue size {encoder_result_queue.qsize()}")
             #logger.info(f"dispatch to queue : id is {id(encoder_result_queue)}, ifempty is {encoder_result_queue.empty()}")
         e_time = time.time()
         #logger.info(f"dispatch encoder result to workers time is {1000 * (e_time - s_time)} ms")
@@ -409,9 +408,9 @@ class WorkerProc:
             s_time = time.time()
             method, args, kwargs = self.rpc_broadcast_mq.dequeue()
             e_time = time.time()
-            logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
-            if (1000 * (e_time - s_time)) > 1000:
-                logger.info(f"slow dequeu, args is {args}, kwargs is {kwargs}")
+            # logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
+            # if (1000 * (e_time - s_time)) > 1000:
+            #     logger.info(f"slow dequeu, args is {args}, kwargs is {kwargs}")
             # logger.info(f"encoder result queue in worker is {id(self.encoder_result_queue)}")
             #logger.info(f"WorkerProc got method {method} with args {args} and kwargs {kwargs}")
             # you need to transfer the encoder cache to the worker cross GPU,  noted by lizhicheng
@@ -446,8 +445,8 @@ class WorkerProc:
             #add to then worker encoder cache
             if method == "execute_model":
                 #logger.info(f"encoder result queue id is {id(self.encoder_result_queue)}")
+                s_time = time.time()
                 while self.encoder_result_queue is not None and not self.encoder_result_queue.empty():
-                    s_time = time.time()
                     encoder_result = self.encoder_result_queue.get_nowait()
                     #logger.info(f"worker get encoder result is {encoder_result}, encoder result queue ifempty is {self.encoder_result_queue.empty()}")  
                     for encoder_item in encoder_result:
@@ -460,7 +459,6 @@ class WorkerProc:
                                 self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
 
                                 #tmp = encoder_item[req_id][mm_key].cuda(self.rank)
-                    e_time = time.time() 
                 
                 if kwargs is not None and 'encoder_req' in kwargs.keys(): 
                     req_ids = kwargs['encoder_req']
@@ -481,6 +479,8 @@ class WorkerProc:
 
                     kwargs.pop('encoder_req')
                     #logger.info(f"worker get encoder result time is {1000 * (e_time - s_time)} ms") 
+                e_time = time.time() 
+                logger.info(f"worker process encoder res is {1000 * (e_time - s_time)} ms")
                     
                 # for req_id in kwargs['encoder_cache'].keys(): 
                 #     #logger.info(f"current gpu is {self.rank}, the encoder cache in {kwargs['encoder_cache'][req_id]}")
@@ -509,7 +509,12 @@ class WorkerProc:
                     func = getattr(self.worker, method)
                 elif isinstance(method, bytes):
                     func = partial(cloudpickle.loads(method), self.worker)
+                s_time = time.time()
                 output = func(*args, **kwargs)
+                e_time = time.time()
+                if method == "execute_model":
+                    logger.info(f"chunkedprefill time is {1000 * (e_time - s_time)} ms")
+                    logger.info(f"args is {args}")
             except Exception as e:
                 self.worker_response_mq.enqueue(
                     (WorkerProc.ResponseStatus.FAILURE, e))

@@ -257,7 +257,28 @@ class MultiModalRegistry:
         Get the maximum number of tokens per data item from each modality based 
         on underlying model configuration.
         """
+
+        
         if self.has_processor(model_config):
+            logger.info(f"model name {model_config.model}")
+            if model_config.model == "moonshotai/Kimi-VL-A3B-Instruct":
+                tokenizer = cached_get_tokenizer(
+                model_config.tokenizer,
+                trust_remote_code=model_config.trust_remote_code,
+                 )
+                processor = self.create_processor(model_config, tokenizer)
+                profiler = MultiModalProfiler(processor)
+                seq_len = model_config.max_model_len
+                mm_limits = self.get_mm_limits_per_prompt(model_config)
+
+                return profiler.get_mm_max_tokens(
+                    seq_len,
+                    {
+                        modality: 1
+                        for modality, limit in mm_limits.items() if limit > 0
+                    },
+                )
+                
             tokenizer = cached_get_tokenizer(
                 model_config.tokenizer,
                 trust_remote_code=model_config.trust_remote_code,

@@ -1150,7 +1150,7 @@ class EngineArgs:
         elif (self.enable_chunked_prefill
               and model_config.runner_type == "pooling"):
             msg = "Chunked prefill is not supported for pooling models"
-            raise ValueError(msg)
+            logger.info(model_config)
 
 
         speculative_config = SpeculativeConfig.maybe_create_spec_config(

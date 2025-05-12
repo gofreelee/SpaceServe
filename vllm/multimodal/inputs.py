@@ -294,6 +294,7 @@ class MultiModalFlatField(BaseMultiModalField):
         :func:`MultiModalFieldConfig.flat_from_sizes`
     """
     slices: Sequence[slice]
+    dim: int = 0
 
     def build_elems(
         self,
@@ -739,3 +740,213 @@ class MultiModalInputs(TypedDict):
     For each modality, information about the placeholder tokens in
     :code:`prompt_token_ids`.
     """
+
+
+class MultiModalEncDecInputs(MultiModalInputs):
+    """
+    Represents the outputs of :class:`vllm.multimodal.EncDecMultiModalProcessor`
+    ready to be passed to vLLM internals.
+    """
+
+    encoder_prompt: str
+    """The processed encoder prompt text."""
+
+    encoder_prompt_token_ids: list[int]
+    """The processed token IDs of the encoder prompt."""
+
+    encoder_token_type_ids: NotRequired[list[int]]
+    """The token type IDs of the encoder prompt."""
+
+
+
+class MultiModalFieldConfig:
+
+    @staticmethod
+    def batched(modality: str):
+        """
+        Defines a field where an element in the batch is obtained by
+        indexing into the first dimension of the underlying data.
+
+        Args:
+            modality: The modality of the multi-modal item that uses this
+                keyword argument.
+
+        Example:
+
+            .. code-block::
+
+                Input:
+                    Data: [[AAAA]
+                        [BBBB]
+                        [CCCC]]
+
+                Output:
+                    Element 1: [AAAA]
+                    Element 2: [BBBB]
+                    Element 3: [CCCC]
+        """
+        return MultiModalFieldConfig(
+            field=MultiModalBatchedField(),
+            modality=modality,
+        )
+
+    @staticmethod
+    def flat(modality: str,
+             slices: Union[Sequence[slice], Sequence[Sequence[slice]]],
+             dim: int = 0):
+        """
+        Defines a field where an element in the batch is obtained by
+        slicing along the first dimension of the underlying data.
+
+        Args:
+            modality: The modality of the multi-modal item that uses this
+                keyword argument.
+            slices: For each multi-modal item, a slice (dim=0) or a tuple of
+                slices (dim>0) that is used to extract the data corresponding 
+                to it.
+            dim: The dimension to extract data, default to 0.
+
+        Example:
+
+            .. code-block::
+        
+                Given:
+                    slices: [slice(0, 3), slice(3, 7), slice(7, 9)]
+
+                Input:
+                    Data: [AAABBBBCC]
+
+                Output:
+                    Element 1: [AAA]
+                    Element 2: [BBBB]
+                    Element 3: [CC]
+            
+            .. code-block::
+
+                Given:
+                    slices: [
+                        (slice(None), slice(0, 3)),
+                        (slice(None), slice(3, 7)),
+                        (slice(None), slice(7, 9))]
+                    dim: 1
+
+                Input:
+                    Data: [[A],[A],[A],[B],[B],[B],[B],[C],[C]]
+
+                Output:
+                    Element 1: [[A],[A],[A]]
+                    Element 2: [[B],[B],[B],[B]]
+                    Element 3: [[C],[C]]
+        """
+        return MultiModalFieldConfig(
+            field=MultiModalFlatField(slices=slices, dim=dim),
+            modality=modality,
+        )
+
+    @staticmethod
+    def flat_from_sizes(modality: str,
+                        size_per_item: torch.Tensor,
+                        dim: int = 0):
+        """
+        Defines a field where an element in the batch is obtained by
+        slicing along the first dimension of the underlying data.
+
+        Args:
+            modality: The modality of the multi-modal item that uses this
+                keyword argument.
+            slices: For each multi-modal item, the size of the slice that
+                is used to extract the data corresponding to it.
+            dim: The dimension to slice, default to 0.
+
+        Example:
+
+            .. code-block::
+        
+                Given:
+                    size_per_item: [3, 4, 2]
+
+                Input:
+                    Data: [AAABBBBCC]
+
+                Output:
+                    Element 1: [AAA]
+                    Element 2: [BBBB]
+                    Element 3: [CC]
+
+            
+            .. code-block::
+
+                Given:
+                    slices: [3, 4, 2]
+                    dim: 1
+
+                Input:
+                    Data: [[A],[A],[A],[B],[B],[B],[B],[C],[C]]
+
+                Output:
+                    Element 1: [[A],[A],[A]]
+                    Element 2: [[B],[B],[B],[B]]
+                    Element 3: [[C],[C]]
+    
+        See also:
+            :func:`MultiModalFieldConfig.flat`
+        """
+
+        if size_per_item.ndim != 1:
+            raise ValueError("size_per_item should be a 1-D tensor, "
+                             f"but found shape: {size_per_item.shape}")
+
+        slice_idxs = [0, *accumulate(size_per_item)]
+        slices = [(slice(None, None, None), ) * dim +
+                  (slice(slice_idxs[i], slice_idxs[i + 1]), )
+                  for i in range(len(size_per_item))]
+
+        return MultiModalFieldConfig.flat(modality, slices, dim=dim)
+
+    @staticmethod
+    def shared(modality: str, batch_size: int):
+        """
+        Defines a field where an element in the batch is obtained by
+        taking the entirety of the underlying data.
+
+        This means that the data is the same for each element in the batch.
+
+        Args:
+            modality: The modality of the multi-modal item that uses this
+                keyword argument.
+            batch_size: The number of multi-modal items which share this data.
+
+        Example:
+
+            .. code-block::
+        
+                Given:
+                    batch_size: 4
+
+                Input:
+                    Data: [XYZ]
+
+                Output:
+                    Element 1: [XYZ]
+                    Element 2: [XYZ]
+                    Element 3: [XYZ]
+                    Element 4: [XYZ]
+        """
+        return MultiModalFieldConfig(
+            field=MultiModalSharedField(batch_size),
+            modality=modality,
+        )
+
+    def __init__(self, field: BaseMultiModalField, modality: str) -> None:
+        super().__init__()
+
+        self.field = field
+        self.modality = modality
+
+    def build_elems(
+        self,
+        key: str,
+        batch: NestedTensors,
+    ) -> Sequence[MultiModalFieldElem]:
+        return self.field.build_elems(self.modality, key, batch)
+

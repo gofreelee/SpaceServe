@@ -15,6 +15,7 @@ import zmq.asyncio
 from msgspec import msgpack
 
 from vllm.config import VllmConfig
+from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 from vllm.logger import init_logger
 from vllm.transformers_utils.config import (
     maybe_register_config_serialize_by_value)
@@ -26,6 +27,7 @@ from vllm.v1.engine import (EngineCoreOutputs, EngineCoreProfile,
                             EngineCoreRequest, EngineCoreRequestType,
                             EngineCoreRequestUnion, EngineCoreResetPrefixCache)
 from vllm.v1.engine.mm_input_mapper import MMInputMapperServer
+from vllm.v1.executor.abstract import UniProcExecutor
 from vllm.v1.executor.abstract import Executor
 from vllm.v1.request import Request, RequestStatus
 from vllm.v1.serial_utils import PickleEncoder
@@ -192,7 +194,8 @@ class EngineCore:
             if not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
-                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                if isinstance(self.model_executor, MultiprocExecutor):
+                    self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
 
         #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
@@ -201,7 +204,7 @@ class EngineCore:
         s_time = time.time()
         output = self.model_executor.execute_model(scheduler_output)
         e_time = time.time()
-        logger.info(f"execute_model time is {1000 * (e_time - s_time)} ms")
+        #logger.info(f"execute_model time is {1000 * (e_time - s_time)} ms")
             #logger.info(self.stream)
         #logger.info(f"llmbackend is working")
         engine_core_outputs = self.scheduler.update_from_output(
@@ -332,7 +335,9 @@ class EngineCoreProc(EngineCore):
             while not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
-                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                if isinstance(self.model_executor, MultiprocExecutor):
+                    self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                #self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
                 
 
             # 3) Step the engine core.
@@ -432,6 +437,7 @@ class EncoderCore:
         # Setup Model.
         vllm_config.model_config.only_vision_encoder = True
         self.model_executor = executor_class(vllm_config)
+        logger.info("lizhicheng here")
         print(self.model_executor)
         #self.model_executor = executor_class(vllm_config)
         self.model_executor.warm_model()
@@ -543,8 +549,13 @@ class EncoderCoreProc(EncoderCore):
         log_stats: bool = False,
         encoder_result_queue = None
     ):
-        super().__init__(vllm_config, executor_class, encoder_result_queue)
+        vllm_config.parallel_config.tensor_parallel_size = 1
+        executor_class = UniProcExecutor
+        vllm_config.parallel_config.distributed_executor_backend = "uni"
+        vllm_config.parallel_config.world_size = 1
 
+        #super().__init__(vllm_config, executor_class, encoder_result_queue)
+        super().__init__(vllm_config, UniProcExecutor, encoder_result_queue)
         self.log_stats = log_stats
 
         # Background Threads and Queues for IO. These enable us to
@@ -590,6 +601,8 @@ class EncoderCoreProc(EncoderCore):
         parent_process = psutil.Process().parent()
         encoder_core = None
         try:
+            logger.info(args)
+            logger.info(kwargs)
             encoder_core = EncoderCoreProc(*args, **kwargs)
             encoder_core.run_busy_loop()
 

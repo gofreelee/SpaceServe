@@ -129,6 +129,26 @@ class MultiModalProfiler(Generic[_I]):
 
         return mm_limits
 
+    def get_mm_max_tokens(self,
+        seq_len: int,
+        mm_counts: Mapping[str, int] = None,):
+            mm_inputs = self._get_dummy_mm_inputs(seq_len, mm_counts)
+
+            return self._get_mm_num_tokens(mm_inputs)
+
+    def _get_mm_num_tokens(
+        self,
+        mm_inputs: MultiModalInputs,
+    ) -> Mapping[str, int]:
+        placeholders_by_modality = mm_inputs["mm_placeholders"]
+        # for modality, placeholders in placeholders_by_modality.items():
+        #     for item in placeholders:
+        #         logger.info(item)
+        return {
+            modality: sum(item['length'] for item in placeholders)
+            for modality, placeholders in placeholders_by_modality.items()
+        }
+
     def _get_dummy_mm_inputs(
         self,
         seq_len: int,
@@ -151,8 +171,12 @@ class MultiModalProfiler(Generic[_I]):
         mm_counts = self.get_mm_limits()
 
         info = self.processing_info
-        mm_max_tokens_per_item = info.get_mm_max_tokens_per_item(
+        if hasattr(info, "get_mm_max_tokens_per_item"):
+            mm_max_tokens_per_item = info.get_mm_max_tokens_per_item(
             seq_len, mm_counts)
+        else:
+            mm_max_tokens_per_item = self.get_mm_max_tokens(seq_len, mm_counts)
+
 
         if mm_counts.keys() != mm_max_tokens_per_item.keys():
             raise AssertionError(

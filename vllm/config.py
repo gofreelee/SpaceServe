@@ -520,6 +520,7 @@ class ModelConfig:
             "generate": ModelRegistry.is_text_generation_model(architectures),
             "pooling": ModelRegistry.is_pooling_model(architectures),
         }
+        logger.info(runner_support)
         supported_runner_types_lst: List[RunnerType] = [
             runner_type
             for runner_type, is_supported in runner_support.items()
@@ -2234,6 +2235,17 @@ class MultiModalConfig:
         factors: List[Any] = []
         hash_str = hashlib.md5(str(factors).encode()).hexdigest()
         return hash_str
+    
+    
+    def get_limit_per_prompt(self, modality: str) -> int:
+        """
+        Get the maximum number of input items allowed per prompt
+        for the given modality.
+        """
+        return self.limit_per_prompt.get(
+            modality,
+            999 if envs.VLLM_USE_V1 else 1,
+        )
 
     # TODO: Add configs to init vision tower or not.
 

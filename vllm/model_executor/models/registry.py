@@ -172,6 +172,8 @@ _MULTIMODAL_MODELS = {
     "Phi3VForCausalLM": ("phi3v", "Phi3VForCausalLM"),
     "PixtralForConditionalGeneration": ("pixtral", "PixtralForConditionalGeneration"),  # noqa: E501
     "QWenLMHeadModel": ("qwen", "QWenLMHeadModel"),
+    "KimiVLForConditionalGeneration": ("kimi_vl", "KimiVLForConditionalGeneration"),  # noqa: E501
+
     "Qwen2VLForConditionalGeneration": ("qwen2_vl", "Qwen2VLForConditionalGeneration"),  # noqa: E501
     "Qwen2VLEncoder": ("qwen2_vl_encoder", "Qwen2VLEncoder"),
     "Qwen2_5_VLForConditionalGeneration": ("qwen2_5_vl", "Qwen2_5_VLForConditionalGeneration"),  # noqa: E501
@@ -274,6 +276,7 @@ class _LazyRegisteredModel(_BaseRegisteredModel):
 
     # Performed in another process to avoid initializing CUDA
     def inspect_model_cls(self) -> _ModelInfo:
+        logger.info(self.load_model_cls())
         return _run_in_subprocess(
             lambda: _ModelInfo.from_model_cls(self.load_model_cls()))
 
@@ -303,6 +306,8 @@ def _try_inspect_model_cls(
     model: _BaseRegisteredModel,
 ) -> Optional[_ModelInfo]:
     try:
+        logger.info(f"type is {type(model)}")
+        logger.info(model.inspect_model_cls())
         return model.inspect_model_cls()
     except Exception:
         logger.exception("Error in inspecting model architecture '%s'",
@@ -374,7 +379,8 @@ class _ModelRegistry:
     def _try_inspect_model_cls(self, model_arch: str) -> Optional[_ModelInfo]:
         if model_arch not in self.models:
             return None
-
+        logger.info(model_arch)
+        logger.info(self.models[model_arch])
         return _try_inspect_model_cls(model_arch, self.models[model_arch])
 
     def _normalize_archs(
@@ -401,6 +407,7 @@ class _ModelRegistry:
 
         for arch in architectures:
             model_info = self._try_inspect_model_cls(arch)
+            logger.info(f"model_info: {model_info}")
             if model_info is not None:
                 return (model_info, arch)
 
@@ -411,9 +418,10 @@ class _ModelRegistry:
         architectures: Union[str, List[str]],
     ) -> Tuple[Type[nn.Module], str]:
         architectures = self._normalize_archs(architectures)
-
+        logger.info(architectures)
         for arch in architectures:
             model_cls = self._try_load_model_cls(arch)
+            logger.info(model_cls)
             if model_cls is not None:
                 return (model_cls, arch)
 
@@ -423,6 +431,7 @@ class _ModelRegistry:
         self,
         architectures: Union[str, List[str]],
     ) -> bool:
+        logger.info(architectures)
         model_cls, _ = self.inspect_model_cls(architectures)
         return model_cls.is_text_generation_model
 
