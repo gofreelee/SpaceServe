@@ -8,7 +8,8 @@ import time
 from multiprocessing.connection import Connection
 from typing import List, Tuple, Type
 import torch
-
+from vllm.v1.executor.abstract import UniProcExecutor
+from vllm.v1.executor.multiproc_executor import MultiprocExecutor
 import psutil
 import zmq
 import zmq.asyncio
@@ -94,7 +95,7 @@ class EngineCore:
 
         # stream_mask = [0xffffffff, 0x0, 0x000, 0x00]
         # #set_stream_mask(self.encoder_stream, -1024)
-        # stream_lzc_mask(self.stream, stream_mask)
+        #stream_lzc_mask(self.stream, stream_mask)
 
         self.mm_input_mapper_server = MMInputMapperServer(
             vllm_config.model_config)
@@ -192,7 +193,8 @@ class EngineCore:
             if not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
-                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                if isinstance(self.model_executor, MultiprocExecutor):
+                    self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
 
         #logger.info(f"schedule the total number tokens are {scheduler_output.total_num_scheduled_tokens}")
         #logger.info(f"scheduler_output is {scheduler_output}")
@@ -201,7 +203,7 @@ class EngineCore:
         s_time = time.time()
         output = self.model_executor.execute_model(scheduler_output)
         e_time = time.time()
-        logger.info(f"execute_model time is {1000 * (e_time - s_time)} ms")
+        #logger.info(f"execute_model time is {1000 * (e_time - s_time)} ms")
             #logger.info(self.stream)
         #logger.info(f"llmbackend is working")
         engine_core_outputs = self.scheduler.update_from_output(
@@ -332,7 +334,8 @@ class EngineCoreProc(EngineCore):
             while not self.encoder_result_queue.empty():
                 encoder_result = self.encoder_result_queue.get_nowait()
                 self._handle_encoder_result(encoder_result)
-                self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
+                if isinstance(self.model_executor, MultiprocExecutor):
+                    self.model_executor.dispatch_encoder_result_to_workers(encoder_result)
                 
 
             # 3) Step the engine core.
@@ -455,7 +458,7 @@ class EncoderCore:
             vllm_config.model_config)
         
         self.encoder_stream = torch.cuda.Stream("cuda")
-        encoder_mask = [0x000, 0x000, 0x000, 0xfff]
+        encoder_mask = [0x0, 0x0, 0xf, 0xfff]
         stream_lzc_mask(self.encoder_stream, encoder_mask)
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
@@ -491,6 +494,7 @@ class EncoderCore:
         if not self.scheduler.has_unfinished_requests():
             return EngineCoreOutputs(
                 outputs=[], scheduler_stats=self.scheduler.make_stats())
+        
 
         # # find if have multimodal inputs, send it to do encoder and continue the steping, noted by lizhicheng
         # muxserver
@@ -498,7 +502,7 @@ class EncoderCore:
         #logger.info(f"in EncoderCore step, scheduler_output is {scheduler_output}")
         output = None
         if scheduler_output.scheduled_new_reqs != None and len(scheduler_output.scheduled_new_reqs) > 0:
-             with torch.cuda.stream(self.encoder_stream):
+            with torch.cuda.stream(self.encoder_stream):
             #     logger.info(f"encoder scheduler result: new req : {len(scheduler_output.scheduled_new_reqs)}")
                 output =  self.model_executor.execute_vision_encoder(scheduler_output)    
             #then i should send the output to the client
@@ -543,6 +547,11 @@ class EncoderCoreProc(EncoderCore):
         log_stats: bool = False,
         encoder_result_queue = None
     ):
+        # vllm_config.parallel_config.tensor_parallel_size = 1
+        # executor_class = UniProcExecutor
+        # vllm_config.parallel_config.distributed_executor_backend = "uni"
+        # vllm_config.parallel_config.world_size = 1
+                                 
         super().__init__(vllm_config, executor_class, encoder_result_queue)
 
         self.log_stats = log_stats

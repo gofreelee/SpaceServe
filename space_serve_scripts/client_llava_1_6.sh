@@ -1,6 +1,6 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model OpenGVLab/InternVL2-4B \
+        --model llava-hf/llava-v1.6-vicuna-7b-hf \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
         --request-rate 10 \

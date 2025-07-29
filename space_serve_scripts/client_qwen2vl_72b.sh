@@ -1,6 +1,6 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model HuggingFaceM4/Idefics3-8B-Llama3 \
+        --model Qwen/Qwen2-VL-72B \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
         --request-rate 10 \

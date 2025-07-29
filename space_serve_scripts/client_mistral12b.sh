@@ -1,4 +1,4 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
         --model mistral-community/pixtral-12b \
         --dataset-name hf --hf-subset vision \

@@ -204,6 +204,7 @@ def sample_mmmu_pro_vision_requests(
     num_requests: int,
     tokenizer: PreTrainedTokenizerBase,
     fixed_output_len: Optional[int] = None,
+    fixed_resolution: Optional[Tuple[int, int]] = None,
 ) -> List[Tuple[str, str, int, Optional[Dict[str, Collection[str]]]]]:
     sampled_requests: List[Tuple[str, int, int, Dict[str,
                                                      Collection[str]]]] = []
@@ -229,13 +230,19 @@ def sample_mmmu_pro_vision_requests(
 
         prompt_len = len(prompt_token_ids)
         output_len = fixed_output_len
-
+        print(data)
         assert isinstance(
             data["image"],
             Image), ("Input image format must be `PIL.Image.Image`, "
                      f"given {type(data['image'])}.")
         image: Image = data["image"]
         image = image.convert("RGB")
+        
+        # Apply fixed resolution if specified
+        if fixed_resolution is not None:
+            width, height = fixed_resolution
+            image = image.resize((width, height))
+        
         image_data = io.BytesIO()
         image.save(image_data, format='JPEG')
         image_base64 = base64.b64encode(image_data.getvalue()).decode("utf-8")
@@ -247,7 +254,6 @@ def sample_mmmu_pro_vision_requests(
         }
 
         sampled_requests.append((prompt, prompt_len, output_len, mm_content))
-
     return sampled_requests
 
 
@@ -259,6 +265,7 @@ def sample_hf_requests(
     tokenizer: PreTrainedTokenizerBase,
     random_seed: int,
     fixed_output_len: Optional[int] = None,
+    fixed_resolution: Optional[Tuple[int, int]] = None,
 ) -> List[Tuple[str, str, int, Optional[Dict[str, Collection[str]]]]]:
 
     # Special case for MMMU-Pro vision dataset
@@ -278,7 +285,7 @@ def sample_hf_requests(
         filter_func = lambda x: isinstance(x["image"], Image)
         #dataset = dataset.shuffle(seed=random_seed).filter(filter_func)
         return sample_mmmu_pro_vision_requests(dataset, num_requests,
-                                               tokenizer, fixed_output_len)
+                                               tokenizer, fixed_output_len, fixed_resolution)
 
     dataset = load_dataset(dataset_path,
                            name=dataset_subset,
@@ -313,6 +320,12 @@ def sample_hf_requests(
         if "image" in data and isinstance(data["image"], Image):
             image: Image = data["image"]
             image = image.convert("RGB")
+            
+            # Apply fixed resolution if specified
+            if fixed_resolution is not None:
+                width, height = fixed_resolution
+                image = image.resize((width, height))
+            
             image_data = io.BytesIO()
             image.save(image_data, format='JPEG')
             image_base64 = base64.b64encode(
@@ -853,6 +866,18 @@ def main(args: argparse.Namespace):
                               output_len, _ in input_requests]
 
     elif args.dataset_name == "hf":
+        # Parse fixed resolution if provided
+        fixed_resolution = None
+        if args.fixed_image_resolution:
+            try:
+                width, height = map(int, args.fixed_image_resolution.split(','))
+                fixed_resolution = (width, height)
+            except ValueError:
+                raise ValueError(
+                    f"Invalid format for --fixed-image-resolution: {args.fixed_image_resolution}. "
+                    "Expected format: 'width,height' (e.g., '224,224')."
+                )
+        
         input_requests = sample_hf_requests(
             dataset_path=args.dataset_path,
             dataset_subset=args.hf_subset,
@@ -861,6 +886,7 @@ def main(args: argparse.Namespace):
             tokenizer=tokenizer,
             random_seed=args.seed,
             fixed_output_len=args.hf_output_len,
+            fixed_resolution=fixed_resolution,
         )
 
     elif args.dataset_name == "random":
@@ -1217,6 +1243,13 @@ if __name__ == "__main__":
         default=None,
         help="Output length for each request. Overrides the output lengths "
         "from the sampled HF dataset.",
+    )
+    hf_group.add_argument(
+        "--fixed-image-resolution",
+        type=str,
+        default=None,
+        help="Fixed image resolution in format 'width,height' (e.g., '224,224'). "
+        "If specified, all images will be resized to this resolution.",
     )
 
     parser.add_argument(

@@ -127,7 +127,7 @@ class EncoderScheduler:
             scheduled_new_reqs.append(request)
 
             encoder_budget = new_encoder_budget
-            break
+            #break
         
         # just for encoder, so I just need the req, set other fields to None or -1 
         new_reqs_data = [

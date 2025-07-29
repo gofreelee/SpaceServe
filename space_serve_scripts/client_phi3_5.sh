@@ -1,10 +1,10 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model llava-hf/llava-onevision-qwen2-7b-ov-hf \
+        --model microsoft/Phi-3.5-vision-instruct \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
-        --request-rate 1 \
-        --num-prompts 100 \
+        --request-rate 10 \
+        --num-prompts 200 \
         --hf-split test \
         --endpoint /chat/completions \
       --base-url http://127.0.0.1:8000/v1

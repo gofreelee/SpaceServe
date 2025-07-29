@@ -7,7 +7,7 @@ from typing import Optional
 # LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/playpen/jbakita/gpu_subdiv/libsmctrl/
 libsmctrl_path = ctypes.util.find_library("libsmctrl")
 if not libsmctrl_path:
-    libsmctrl_path = "/home/lizhicheng/verify/encoder_llm_concurrent/vllm/v1/smcontroller/libsmctrl.so"
+    libsmctrl_path = "/home/lizhicheng/encoder_llm_concurrent/vllm/v1/smcontroller/libsmctrl.so"
 libsmctrl = ctypes.CDLL(libsmctrl_path)
 print(libsmctrl_path)
 print("in libsm")

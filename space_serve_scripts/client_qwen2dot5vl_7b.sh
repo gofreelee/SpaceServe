@@ -1,9 +1,9 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model allenai/Molmo-7B-D-0924 \
+        --model Qwen/Qwen2.5-VL-7B-Instruct \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
-        --request-rate 10 \
+        --request-rate 2 \
         --num-prompts 200 \
         --hf-split test \
         --endpoint /chat/completions \

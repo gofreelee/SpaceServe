@@ -1,6 +1,6 @@
-python benchmarks/benchmark_serving_6_6.py \
+python ../benchmarks/benchmark_serving_6_6.py \
         --backend openai-chat \
-        --model TIGER-Lab/Mantis-8B-siglip-llama3 \
+        --model Qwen/Qwen2.5-VL-3B-Instruct \
         --dataset-name hf --hf-subset vision \
         --dataset-path MMMU/MMMU_Pro \
         --request-rate 10 \

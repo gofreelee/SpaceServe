@@ -107,7 +107,8 @@ class MultiprocExecutor(Executor):
             for req_id in encoder_res_item.keys():
                 for mm_key in encoder_res_item[req_id].keys():
                     if encoder_res_item[req_id][mm_key] is not None:
-                        encoder_res_item[req_id][mm_key] = encoder_res_item[req_id][mm_key].cpu()
+                        #encoder_res_item[req_id][mm_key] = encoder_res_item[req_id][mm_key].cpu()
+                        encoder_res_item[req_id][mm_key] = encoder_res_item[req_id][mm_key].clone()
                 logger.info(f"req id's mm done {req_id}")
                 self.encoder_req_ids.append(req_id)
 
@@ -119,10 +120,9 @@ class MultiprocExecutor(Executor):
             while encoder_result_queue.empty():
                 continue
 
-            logger.info(f"queue size {encoder_result_queue.qsize()}")
             #logger.info(f"dispatch to queue : id is {id(encoder_result_queue)}, ifempty is {encoder_result_queue.empty()}")
         e_time = time.time()
-        #logger.info(f"dispatch encoder result to workers time is {1000 * (e_time - s_time)} ms")
+        logger.info(f"dispatch encoder result to workers time is {1000 * (e_time - s_time)} ms")
 
     def collective_rpc(self,
                        method: Union[str, Callable],
@@ -406,12 +406,12 @@ class WorkerProc:
     def worker_busy_loop(self):
         """Main busy loop for Multiprocessing Workers"""
         while True:
-            s_time = time.time()
+            #s_time = time.time()
             method, args, kwargs = self.rpc_broadcast_mq.dequeue()
-            e_time = time.time()
-            logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
-            if (1000 * (e_time - s_time)) > 1000:
-                logger.info(f"slow dequeu, args is {args}, kwargs is {kwargs}")
+            #e_time = time.time()
+            # logger.info(f"worker {self.rank}  dequeue execute time is {1000 * (e_time - s_time)} ms")
+            # if (1000 * (e_time - s_time)) > 1000:
+            #     logger.info(f"slow dequeu, args is {args}, kwargs is {kwargs}")
             # logger.info(f"encoder result queue in worker is {id(self.encoder_result_queue)}")
             #logger.info(f"WorkerProc got method {method} with args {args} and kwargs {kwargs}")
             # you need to transfer the encoder cache to the worker cross GPU,  noted by lizhicheng
@@ -446,21 +446,19 @@ class WorkerProc:
             #add to then worker encoder cache
             if method == "execute_model":
                 #logger.info(f"encoder result queue id is {id(self.encoder_result_queue)}")
+                s_time = time.time()
                 while self.encoder_result_queue is not None and not self.encoder_result_queue.empty():
-                    s_time = time.time()
                     encoder_result = self.encoder_result_queue.get_nowait()
                     #logger.info(f"worker get encoder result is {encoder_result}, encoder result queue ifempty is {self.encoder_result_queue.empty()}")  
                     for encoder_item in encoder_result:
                         for req_id in encoder_item.keys():
                             if req_id in self.encoder_cache.keys():
                                 continue
-                            logger.info(f"worker doing req id is {req_id}")
                             self.encoder_cache[req_id] = {}
                             for mm_key in encoder_item[req_id].keys():
                                 self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
 
                                 #tmp = encoder_item[req_id][mm_key].cuda(self.rank)
-                    e_time = time.time() 
                 
                 if kwargs is not None and 'encoder_req' in kwargs.keys(): 
                     req_ids = kwargs['encoder_req']
@@ -480,7 +478,9 @@ class WorkerProc:
                                     self.encoder_cache[req_id][mm_key] = encoder_item[req_id][mm_key].cuda(self.rank)
 
                     kwargs.pop('encoder_req')
-                    #logger.info(f"worker get encoder result time is {1000 * (e_time - s_time)} ms") 
+                    e_time = time.time()
+                    if (1000 * (e_time - s_time)) > 1:
+                        logger.info(f"worker get encoder result time is {1000 * (e_time - s_time)} ms") 
                     
                 # for req_id in kwargs['encoder_cache'].keys(): 
                 #     #logger.info(f"current gpu is {self.rank}, the encoder cache in {kwargs['encoder_cache'][req_id]}")
