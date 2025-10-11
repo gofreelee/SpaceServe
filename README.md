@@ -12,26 +12,12 @@ SpaceServe is a vLLM‑based inference runtime for multimodal (especially vision
 
 ## Architecture (overview)
 
-```mermaid
-flowchart TB
-    U[User Requests] --> A[Modality Inputs]
-    U --> B[Text Inputs]
-    subgraph S[Modality Scheduler]
-      direction LR
-      S2[FCFS (encoder‑aware)]
-      S3[Chunked Prefill]
-    end
-    A --> S
-    B --> S
-    S -->|to| E[Encoder]
-    S -->|to| L[LLM]
-    subgraph R[SpaceServe Runtime]
-      R1[Share encoder results]
-      R2[Decode with aligned features]
-    end
-    E --> R
-    L --> R
-```
+<p align="center">
+  <img src="overview.png" alt="SpaceServe architecture overview" width="85%" />
+  <br/>
+  <em>High‑level dataflow and scheduling in SpaceServe.</em>
+  
+</p>
 
 ## Environment Setup
 
