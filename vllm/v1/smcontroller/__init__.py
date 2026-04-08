@@ -1,19 +1,58 @@
-import ctypes, ctypes.util
+import ctypes
+import ctypes.util
 import os
-import torch
+from pathlib import Path
 from typing import Optional
-# If this is failing, make sure that the directory containing libsmctrl.so is
-# in your LD_LIBRARY_PATH environment variable. You likely need something like:
-# LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/playpen/jbakita/gpu_subdiv/libsmctrl/
-libsmctrl_path = ctypes.util.find_library("libsmctrl")
-if not libsmctrl_path:
-    libsmctrl_path = "/home/lizhicheng/verify/encoder_llm_concurrent/vllm/v1/smcontroller/libsmctrl.so"
-libsmctrl = ctypes.CDLL(libsmctrl_path)
-print(libsmctrl_path)
-print("in libsm")
-print(libsmctrl)
-print(hasattr(libsmctrl, "libsmctrl_set_stream_mask_lzc"))  # 必须输出True
-print(libsmctrl.libsmctrl_set_stream_mask_lzc)              # 应该显示一个有效函数指针
+
+import torch
+
+_LIBSMCTRL_ENV_VAR = "VLLM_LIBSMCTRL_PATH"
+
+
+def _candidate_libsmctrl_paths() -> list[str]:
+    candidates: list[str] = []
+
+    env_path = os.getenv(_LIBSMCTRL_ENV_VAR)
+    if env_path:
+        candidates.append(env_path)
+
+    for lib_name in ("smctrl", "libsmctrl"):
+        discovered = ctypes.util.find_library(lib_name)
+        if discovered:
+            candidates.append(discovered)
+
+    candidates.append(str(Path(__file__).resolve().with_name("libsmctrl.so")))
+
+    # Preserve search order while deduplicating repeated candidates.
+    return list(dict.fromkeys(candidates))
+
+
+def _load_libsmctrl() -> tuple[Optional[ctypes.CDLL], Optional[str], str]:
+    errors: list[str] = []
+
+    for candidate in _candidate_libsmctrl_paths():
+        try:
+            return ctypes.CDLL(candidate), candidate, ""
+        except OSError as exc:
+            errors.append(f"{candidate}: {exc}")
+
+    details = "\n".join(errors) if errors else "no candidate paths were found"
+    return None, None, details
+
+
+libsmctrl, libsmctrl_path, _libsmctrl_load_error = _load_libsmctrl()
+
+
+def _require_libsmctrl() -> ctypes.CDLL:
+    if libsmctrl is not None:
+        return libsmctrl
+
+    raise RuntimeError(
+        "SM partitioning requires libsmctrl, but it could not be loaded. "
+        f"Set {_LIBSMCTRL_ENV_VAR} to the full path of libsmctrl.so or add "
+        "its directory to LD_LIBRARY_PATH.\n"
+        f"Tried:\n{_libsmctrl_load_error}")
+
 
 def get_gpc_info(device_num):
     """
@@ -33,13 +72,17 @@ def get_gpc_info(device_num):
         a bitmask. A bit set at index `i` indicates that TPC `i` is part of the
         GPC at that list index. Obtained via GPU register reads in `nvdebug`.
     """
+    lib = _require_libsmctrl()
     num_gpcs = ctypes.c_uint()
     tpc_masks = ctypes.pointer(ctypes.c_ulonglong())
-    res = libsmctrl.libsmctrl_get_gpc_info(ctypes.byref(num_gpcs), ctypes.byref(tpc_masks), device_num)
+    res = lib.libsmctrl_get_gpc_info(ctypes.byref(num_gpcs),
+                                     ctypes.byref(tpc_masks), device_num)
     if res != 0:
-        print("pysmctrl: Unable to call libsmctrl_get_gpc_info(). Raising error %d..."%res)
+        print("pysmctrl: Unable to call libsmctrl_get_gpc_info(). "
+              "Raising error %d..." % res)
         raise OSError(res, os.strerror(res))
     return [tpc_masks[i] for i in range(num_gpcs.value)]
+
 
 def get_tpc_info(device_num):
     """
@@ -57,12 +100,15 @@ def get_tpc_info(device_num):
     int
         Count of enabled TPCs. Obtained via GPU register reads in `nvdebug`.
     """
+    lib = _require_libsmctrl()
     num_tpcs = ctypes.c_uint()
-    res = libsmctrl.libsmctrl_get_tpc_info(ctypes.byref(num_tpcs), device_num)
+    res = lib.libsmctrl_get_tpc_info(ctypes.byref(num_tpcs), device_num)
     if res != 0:
-        print("pysmctrl: Unable to call libsmctrl_get_tpc_info(). Raising error %d..."%res)
+        print("pysmctrl: Unable to call libsmctrl_get_tpc_info(). "
+              "Raising error %d..." % res)
         raise OSError(res, os.strerror(res))
     return num_tpcs.value
+
 
 def get_tpc_info_cuda(device_num):
     """
@@ -79,12 +125,15 @@ def get_tpc_info_cuda(device_num):
     int
         Count of enabled TPCs. Obtained via calculations on data from CUDA.
     """
+    lib = _require_libsmctrl()
     num_tpcs = ctypes.c_uint()
-    res = libsmctrl.libsmctrl_get_tpc_info_cuda(ctypes.byref(num_tpcs), device_num)
+    res = lib.libsmctrl_get_tpc_info_cuda(ctypes.byref(num_tpcs), device_num)
     if res != 0:
-        print("pysmctrl: Unable to call libsmctrl_get_tpc_info_cuda(). Raising error %d..."%res)
+        print("pysmctrl: Unable to call libsmctrl_get_tpc_info_cuda(). "
+              "Raising error %d..." % res)
         raise OSError(res, os.strerror(res))
     return num_tpcs.value
+
 
 def generate_mask(n: int, shift: Optional[int] = 0):
     """
@@ -105,11 +154,23 @@ def generate_mask(n: int, shift: Optional[int] = 0):
     mask = ~(int('1' * n, 2) << shift)
     return mask
 
-def set_stream_mask(torch_stream: torch.cuda.Stream , mask):
-    # original c function prototype:extern void libsmctrl_set_stream_mask(void* stream, uint64_t mask);
-    stream_ptr = ctypes.c_void_p(torch_stream.cuda_stream)
-    libsmctrl.libsmctrl_set_stream_mask(stream_ptr, ctypes.c_uint64(mask))
 
-def stream_lzc_mask(torch_stream, mask_list):
+def set_stream_mask(torch_stream: torch.cuda.Stream, mask):
+    lib = _require_libsmctrl()
     stream_ptr = ctypes.c_void_p(torch_stream.cuda_stream)
-    libsmctrl.libsmctrl_set_stream_mask_lzc(stream_ptr, ctypes.c_uint32(mask_list[0]),ctypes.c_uint32(mask_list[1]), ctypes.c_uint32(mask_list[2]), ctypes.c_uint32(mask_list[3]))
+    lib.libsmctrl_set_stream_mask(stream_ptr, ctypes.c_uint64(mask))
+
+
+def stream_lzc_mask(torch_stream: torch.cuda.Stream, mask_list):
+    lib = _require_libsmctrl()
+    if len(mask_list) != 4:
+        raise ValueError("mask_list must contain exactly 4 uint32 values")
+
+    stream_ptr = ctypes.c_void_p(torch_stream.cuda_stream)
+    lib.libsmctrl_set_stream_mask_lzc(
+        stream_ptr,
+        ctypes.c_uint32(mask_list[0]),
+        ctypes.c_uint32(mask_list[1]),
+        ctypes.c_uint32(mask_list[2]),
+        ctypes.c_uint32(mask_list[3]),
+    )

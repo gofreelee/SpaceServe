@@ -430,15 +430,13 @@ class EncoderCore:
         encoder_result_queue = None
     ):
         assert vllm_config.model_config.runner_type != "pooling"
-        from vllm.v1.smcontroller import stream_lzc_mask
+        from vllm.v1.smcontroller import libsmctrl_path, stream_lzc_mask
         logger.info("Initializing a V1 LLM encoder engine (v%s) with config: %s",
                     VLLM_VERSION, vllm_config)
 
         # Setup Model.
         vllm_config.model_config.only_vision_encoder = True
         self.model_executor = executor_class(vllm_config)
-        logger.info("lizhicheng here")
-        print(self.model_executor)
         #self.model_executor = executor_class(vllm_config)
         self.model_executor.warm_model()
         #Setup KV Caches and update CacheConfig after profiling.
@@ -461,8 +459,12 @@ class EncoderCore:
             vllm_config.model_config)
         
         self.encoder_stream = torch.cuda.Stream("cuda")
-        encoder_mask = [0x000, 0x000, 0x000, 0xfff]
-        stream_lzc_mask(self.encoder_stream, encoder_mask)
+        if libsmctrl_path is not None:
+            encoder_mask = [0x000, 0x000, 0x000, 0xfff]
+            stream_lzc_mask(self.encoder_stream, encoder_mask)
+        else:
+            logger.info("libsmctrl is unavailable; skipping encoder SM "
+                        "partitioning.")
     def add_request(self, request: EngineCoreRequest):
         """Add request to the scheduler."""
 
@@ -714,7 +716,6 @@ class EncoderCoreProc(EncoderCore):
                 outputs = self.output_queue.get()
                 encoder.encode_into(outputs, buffer)
                 socket.send_multipart((buffer, ), copy=False)
-
 
 
 

@@ -41,27 +41,29 @@ Enable the vLLM V1 inner loop (required):
 export VLLM_USE_V1=1
 ```
 
-Start the OpenAI‑compatible server (example with Qwen2.5‑VL‑3B):
+Start the OpenAI-compatible server (example with Qwen2-VL-7B):
 ```bash
 python -m vllm.entrypoints.openai.api_server \
-  --model Qwen/Qwen2.5-VL-3B-Instruct \
-  --trust-remote-code \
-  --max-num-batched-tokens 2048 \
-  --max-num-seqs 256
+  --model Qwen/Qwen2-VL-7B-Instruct \
+  --gpu-memory-utilization 0.8 \
+  --port 7778 \
+  --enforce-eager
 ```
 
 Quick health check:
 ```bash
-curl http://127.0.0.1:8000/v1/models
+curl http://127.0.0.1:7778/v1/models
 ```
 
 Optional local benchmark clients:
 ```bash
-bash ./client_qwen2dot5vl_3b.sh
+bash ./client_qwen2vl_7b.sh
 ```
 
 ## Notes
 
 - Default throughput knobs: `--max-num-batched-tokens` and `--max-num-seqs`.
 - Multimodal preprocessing and per‑prompt limits are supported via vLLM flags (e.g., `--limit-mm-per-prompt`, `--mm-processor-kwargs`).
-- SM partitioning is experimental and requires a local `libsmctrl` installation.
+- SM partitioning is experimental and requires a local `libsmctrl`
+  installation. Set `VLLM_LIBSMCTRL_PATH=/path/to/libsmctrl.so` or add the
+  library directory to `LD_LIBRARY_PATH`.

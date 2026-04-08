@@ -7,4 +7,4 @@ python benchmarks/benchmark_serving_6_6.py \
         --num-prompts 200 \
         --hf-split test \
         --endpoint /chat/completions \
-      --base-url http://127.0.0.1:8000/v1
+      --base-url http://127.0.0.1:7778/v1
